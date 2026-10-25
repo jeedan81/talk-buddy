@@ -1,0 +1,17 @@
+{
+  "name": "Talk Buddy – 상황별 영어 회화 친구",
+  "short_name": "Talk Buddy",
+  "description": "초등 5학년을 위한 상황별 영어 회화 롤플레이 앱",
+  "lang": "ko",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#FFF7E8",
+  "theme_color": "#FFF7E8",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
