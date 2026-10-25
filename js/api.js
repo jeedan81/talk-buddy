@@ -76,13 +76,40 @@ const API = (() => {
   };
   const info = lang => LANG_INFO[lang] || LANG_INFO.en;
   const sessionLang = session => (session && session.lang) || 'en';
+  const sessionStage = session => (session && STAGE_RULES[session.stage]) ? session.stage : 'elem';
+
+  /* ---------- 단계별 규칙 (학생 설명 / 수준 / 말투) ---------- */
+  const STAGE_RULES = {
+    elem: {
+      student: 'Korean 5th grader (age 10-11)', tone: '10살 아이에게 말하듯 쉽고 다정하게', maxCorrections: 3,
+      en: { level: 'beginner level, CEFR A1-A2', style: LANG_INFO.en.style },
+      ja: { level: 'absolute beginner, JLPT N5 or below', style: LANG_INFO.ja.style },
+    },
+    middle: {
+      student: 'Korean middle school student (age 13-15)', tone: '중학생에게 말하듯 친근하고 분명하게', maxCorrections: 4,
+      en: { level: 'elementary to pre-intermediate, CEFR A2-B1', style: 'Keep replies short and natural: 2-3 sentences, max 40 words, everyday vocabulary with a few common idioms. Sound like a real teenager or adult in this situation. No lists, no markdown.' },
+      ja: { level: 'JLPT N5-N4', style: 'Keep replies short: 2-3 sentences, max 50 characters each. Use simple everyday Japanese with basic kanji (JLPT N5-N4 level, about 300 kanji). Use です/ます with adults and natural casual speech between friends. No lists, no markdown, no romaji.' },
+    },
+    high: {
+      student: 'Korean high school student (age 16-18)', tone: '고등학생에게 격려하며 구체적으로', maxCorrections: 4,
+      en: { level: 'intermediate, CEFR B1-B2', style: 'Reply in 3-4 natural sentences, max 60 words. Use real-life vocabulary and ask follow-up questions that require reasons, opinions or details. No lists, no markdown.' },
+      ja: { level: 'JLPT N4-N3', style: 'Reply in 3-4 sentences, max 70 characters each. Common kanji is fine. Use 丁寧語 by default and appropriate 敬語 when your role requires it; casual speech between friends. No lists, no markdown, no romaji.' },
+    },
+    adult: {
+      student: 'Korean adult learner', tone: '성인 학습자에게 정중하고 전문적으로', maxCorrections: 5,
+      en: { level: 'upper-intermediate to advanced, CEFR B2-C1', style: 'Speak exactly like a native adult would in this situation: 2-4 sentences, max 70 words, natural register (professional where appropriate), realistic follow-up questions and small complications. No lists, no markdown.' },
+      ja: { level: 'JLPT N3-N2', style: 'Speak like a native adult in this situation: 2-4 sentences, max 90 characters each, normal kanji. Use correct 敬語（尊敬語・謙譲語）in business and service roles, and natural casual speech among friends. No lists, no markdown, no romaji.' },
+    },
+  };
+  const rules = (stage, lang) => { const r = STAGE_RULES[stage] || STAGE_RULES.elem; return { ...r, ...(r[lang] || r.en) }; };
 
   /* ---------- 프롬프트 ---------- */
-  function systemPrompt(sc, studentName, lang) {
+  function systemPrompt(sc, studentName, lang, stage) {
     const L = info(lang);
+    const R = rules(stage, lang);
     const lc = localize(sc, lang);
     const name = studentName ? ` The student's name is ${studentName}.` : '';
-    return `You are a friendly ${L.label} conversation partner for a Korean 5th grader (age 10-11, ${L.level}).${name}
+    return `You are a friendly ${L.label} conversation partner for a ${R.student} (${R.level}).${name}
 We are doing a role-play.
 - Scenario: ${sc.en} (${sc.title})
 - Setting: ${sc.place}
@@ -93,7 +120,7 @@ ${sc.missions.map((m, i) => `  ${i + 1}. ${m}`).join('\n')}
 
 RULES
 1. Stay in character the whole time. Speak only ${L.label} in your dialogue lines.
-2. ${L.style}
+2. ${R.style}
 3. Always end your turn with a simple question or prompt so the student can answer.
 4. Be warm, patient and encouraging. Never scold. React naturally even if the student's ${L.label} is imperfect.
 5. If the student writes in Korean or says they don't know, help them: respond in ${L.label} and show the ${L.label} sentence they could say.
@@ -121,7 +148,7 @@ FORMAT: dialogue line(s) first, then any [[MISSION:n]] / [[TIP: ...]] tags on th
   /** 세션 메시지 → OpenAI 메시지 배열 */
   function toChatMessages(sc, session) {
     const { name } = Store.getSettings();
-    const msgs = [{ role: 'system', content: systemPrompt(sc, name, sessionLang(session)) }];
+    const msgs = [{ role: 'system', content: systemPrompt(sc, name, sessionLang(session), sessionStage(session)) }];
     for (const m of session.messages) {
       msgs.push({ role: m.role === 'ai' ? 'assistant' : 'user', content: m.text });
     }
@@ -148,11 +175,20 @@ FORMAT: dialogue line(s) first, then any [[MISSION:n]] / [[TIP: ...]] tags on th
     return parsed;
   }
 
-  /** 외국어 문장 → 쉬운 한국어 */
-  async function translate(text, lang = 'en') {
+  /** 외국어 문장 → 한국어 뜻 (일본어 중등 이상은 히라가나 읽기도 함께) */
+  async function translate(text, lang = 'en', stage = 'elem') {
     if (!hasKey()) return '(데모 모드) API 키를 설정하면 한국어 뜻을 볼 수 있어요.';
+    const who = stage === 'elem' ? 'a Korean 5th grader' : 'a Korean learner';
+    if (lang === 'ja' && stage !== 'elem') {
+      return chat([
+        { role: 'system', content: `You help a Korean learner read Japanese. For the given Japanese text return exactly two lines and nothing else:
+읽기: <the full text rewritten in hiragana/katakana only (よみがな), keeping punctuation>
+뜻: <natural Korean translation>` },
+        { role: 'user', content: text },
+      ], { maxTokens: 300 });
+    }
     return chat([
-      { role: 'system', content: `Translate the ${info(lang).label} text into natural, simple Korean that a Korean 5th grader can understand. Return ONLY the Korean translation, nothing else.` },
+      { role: 'system', content: `Translate the ${info(lang).label} text into natural Korean that ${who} can understand. Return ONLY the Korean translation, nothing else.` },
       { role: 'user', content: text },
     ], { maxTokens: 200 });
   }
@@ -165,9 +201,11 @@ FORMAT: dialogue line(s) first, then any [[MISSION:n]] / [[TIP: ...]] tags on th
       return lc.phrases.slice(0, 3).map(([en, ko]) => ({ en, ko }));
     }
     const L = info(lang);
-    const kana = lang === 'ja' ? ' Write the Japanese in hiragana/katakana only (no kanji) with spaces between words.' : '';
+    const stage = sessionStage(session);
+    const kana = lang === 'ja' && stage === 'elem' ? ' Write the Japanese in hiragana/katakana only (no kanji) with spaces between words.' : '';
+    const len = stage === 'elem' ? 'short, simple (max 10 words each)' : stage === 'middle' ? 'natural (max 15 words each)' : 'natural, level-appropriate (max 20 words each)';
     const msgs = toChatMessages(sc, session);
-    msgs.push({ role: 'user', content: `(The student is stuck and does not know what to say next. As a helper, give exactly 3 short, simple ${L.label} sentences (max 10 words each) that the student, playing "${sc.user}", could say RIGHT NOW to continue this conversation naturally and move toward the missions.${kana} Return JSON only: {"suggestions":[{"en":"<${L.label} sentence>","ko":"쉬운 한국어 뜻"}]})` });
+    msgs.push({ role: 'user', content: `(The student is stuck and does not know what to say next. As a helper, give exactly 3 ${len} ${L.label} sentences that the student, playing "${sc.user}", could say RIGHT NOW to continue this conversation naturally and move toward the missions.${kana} Return JSON only: {"suggestions":[{"en":"<${L.label} sentence>","ko":"한국어 뜻"}]})` });
     const raw = await chat(msgs, { json: true, maxTokens: 300 });
     try {
       const data = JSON.parse(raw);
@@ -193,9 +231,11 @@ FORMAT: dialogue line(s) first, then any [[MISSION:n]] / [[TIP: ...]] tags on th
       };
     }
     const transcript = session.messages.map(m => `${m.role === 'ai' ? 'Partner' : 'Student'}: ${m.text}`).join('\n');
-    const kana = lang === 'ja' ? ' Write all Japanese in hiragana/katakana only (no kanji) with spaces between words.' : '';
+    const stage = sessionStage(session);
+    const R = rules(stage, lang);
+    const kana = lang === 'ja' && stage === 'elem' ? ' Write all Japanese in hiragana/katakana only (no kanji) with spaces between words.' : '';
     const raw = await chat([
-      { role: 'system', content: `You are a warm, encouraging ${L.label} teacher reviewing a role-play practice by a Korean 5th grader (beginner). Write all Korean text simply and kindly for a 10-year-old.${kana} Return JSON only.` },
+      { role: 'system', content: `You are a warm, encouraging ${L.label} teacher reviewing a role-play practice by a ${R.student} (${R.level}). Write all Korean text ${R.tone}.${kana} Return JSON only.` },
       { role: 'user', content: `Scenario: ${sc.en}. Missions: ${sc.missions.join(' / ')}. Missions completed: ${missionsDone.length}/${sc.missions.length}.
 
 Conversation:
@@ -209,14 +249,14 @@ Return this JSON:
  "words": [ {"en":"<useful ${L.label} word or phrase from this conversation>", "ko":"<한국어 뜻>"} ],
  "nextTip": "<한국어 한 문장. 다음 연습을 위한 조언>"
 }
-Rules: corrections max 3 (empty array if the student's ${L.label} was fine), words 3-4 items. Only use sentences the student actually wrote.` },
-    ], { json: true, maxTokens: 600 });
+Rules: corrections max ${R.maxCorrections} (empty array if the student's ${L.label} was fine), words 3-4 items. Only use sentences the student actually wrote.` },
+    ], { json: true, maxTokens: 700 });
     try {
       const d = JSON.parse(raw);
       return {
         stars: Math.max(1, Math.min(5, Number(d.stars) || 3)),
         praise: String(d.praise || '잘했어요!'),
-        corrections: Array.isArray(d.corrections) ? d.corrections.slice(0, 3) : [],
+        corrections: Array.isArray(d.corrections) ? d.corrections.slice(0, R.maxCorrections) : [],
         words: Array.isArray(d.words) ? d.words.slice(0, 4) : [],
         nextTip: String(d.nextTip || ''),
       };

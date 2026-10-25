@@ -17,6 +17,7 @@ const Store = (() => {
     showKoHint: false,
     name: '',
     lang: 'en',          // 배우는 언어: 'en' | 'ja'
+    stage: 'elem',       // 학습 단계: 'elem' | 'middle' | 'high' | 'adult'
   };
 
   function read(key, fallback) {

@@ -86,6 +86,9 @@ body.in-chat .bottom-nav { display: none; }
 .lang-toggle.dark button { color: var(--muted); }
 .lang-toggle.dark button.active { background: var(--primary); color: #fff; }
 .lang-flag { font-size: 13px; background: var(--card); border-radius: 999px; padding: 2px 8px; font-weight: 800; box-shadow: var(--shadow); }
+.toggles { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.lang-toggle.stage button { padding: 7px 11px; font-size: 13px; }
+.ko { white-space: pre-line; }
 
 /* ---------- 홈 ---------- */
 .hero {

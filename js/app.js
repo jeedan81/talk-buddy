@@ -114,6 +114,13 @@
     const cur = curLang();
     return `<div class="lang-toggle ${dark ? 'dark' : ''}" role="group" aria-label="배우는 언어">${Object.values(LANGS).map(l => `<button type="button" class="${cur === l.code ? 'active' : ''}" data-lang="${l.code}">${l.flag} ${l.name}</button>`).join('')}</div>`;
   }
+  const curStage = () => { const s = Store.getSettings().stage; return STAGES[s] ? s : 'elem'; };
+  const sessStage = s => (s && STAGES[s.stage]) ? s.stage : 'elem';
+  const stageTag = st => `<span class="lang-flag">${STAGES[st].emoji} ${STAGES[st].name}</span>`;
+  function stageToggle(dark = false) {
+    const cur = curStage();
+    return `<div class="lang-toggle stage ${dark ? 'dark' : ''}" role="group" aria-label="학습 단계">${Object.values(STAGES).map(s => `<button type="button" class="${cur === s.code ? 'active' : ''}" data-stage="${s.code}" title="${esc(s.desc)}">${s.emoji} ${s.name}</button>`).join('')}</div>`;
+  }
   function completedScenarioIds(lg = curLang()) {
     return new Set(Store.getHistory().filter(s => s.endedAt && sessLang(s) === lg).map(s => s.scenarioId));
   }
@@ -160,10 +167,16 @@
     const today = todaySessions();
     const sentences = today.reduce((n, s) => n + userCount(s), 0);
     const minutes = Math.round(today.reduce((n, s) => n + sessionDuration(s), 0) / 60);
-    const hello = settings.name ? `${esc(settings.name)}, 안녕!` : '안녕, 친구!';
     const hour = new Date().getHours();
     const ln = LANGS[curLang()].name;
-    const sub = hour < 12 ? `오늘은 어떤 상황에서 ${ln}로 말해 볼까?` : hour < 18 ? `오늘 오후도 ${ln}로 신나게 이야기해 보자!` : `하루를 마무리하며 ${ln} 한 마디 어때?`;
+    const st = curStage();
+    const formal = st === 'adult' || st === 'high';
+    const hello = formal ? (settings.name ? `${esc(settings.name)}님, 안녕하세요!` : '안녕하세요!') : (settings.name ? `${esc(settings.name)}, 안녕!` : '안녕, 친구!');
+    const sub = formal
+      ? (hour < 12 ? `오늘은 어떤 상황을 ${ln}로 연습해 볼까요?` : hour < 18 ? `오후에도 ${ln} 한 장면 연습해 보세요.` : `하루를 마무리하며 ${ln}로 대화해 볼까요?`)
+      : (hour < 12 ? `오늘은 어떤 상황에서 ${ln}로 말해 볼까?` : hour < 18 ? `오늘 오후도 ${ln}로 신나게 이야기해 보자!` : `하루를 마무리하며 ${ln} 한 마디 어때?`);
+    const myScenarios = stageScenarios(st);
+    const myCategories = stageCategories(st);
 
     const currentId = Store.getCurrentId();
     const current = currentId ? Store.getSession(currentId) : null;
@@ -171,14 +184,14 @@
 
     // 추천 상황: 아직 안 해본 것 위주로 3개
     const done = completedScenarioIds();
-    const pool = SCENARIOS.filter(s => !done.has(s.id));
-    const picks = shuffle(pool.length >= 3 ? pool : SCENARIOS).slice(0, 3);
+    const pool = myScenarios.filter(s => !done.has(s.id));
+    const picks = shuffle(pool.length >= 3 ? pool : myScenarios).slice(0, 3);
 
     main.innerHTML = `
       <section class="hero">
         <h1>${hello} 👋</h1>
         <p>${sub}</p>
-        <div style="margin-top:12px">${langToggle()}</div>
+        <div class="toggles" style="margin-top:12px">${langToggle()}${stageToggle()}</div>
         <div class="stats">
           <div class="stat"><b>${today.length}</b><span>오늘 대화</span></div>
           <div class="stat"><b>${sentences}</b><span>말한 문장</span></div>
@@ -220,13 +233,13 @@
       <h2 class="section-title">오늘의 추천 상황 <button class="link" data-go="scenarios">전체 보기 ›</button></h2>
       <div class="scn-grid">${picks.map(scenarioCard).join('')}</div>
 
-      <h2 class="section-title">카테고리</h2>
+      <h2 class="section-title">${STAGES[st].emoji} ${STAGES[st].name} 카테고리 <small>${myScenarios.length}개 상황</small></h2>
       <div class="cat-grid">
-        ${CATEGORIES.map(c => `
+        ${myCategories.map(c => `
           <button class="cat-card" style="--c:${c.color}" data-cat="${c.id}">
             <span class="emoji">${c.emoji}</span>
             <b>${esc(c.name)}</b>
-            <small>${SCENARIOS.filter(s => s.cat === c.id).length}개 상황</small>
+            <small>${myScenarios.filter(s => s.cat === c.id).length}개 상황</small>
           </button>`).join('')}
       </div>
     `;
@@ -260,6 +273,13 @@
   }
 
   function bindCommon() {
+    $$('[data-stage]').forEach(b => b.addEventListener('click', () => {
+      if (b.dataset.stage === curStage()) return;
+      Store.saveSettings({ stage: b.dataset.stage });
+      state.cat = 'all'; state.search = '';
+      toast(`${STAGES[b.dataset.stage].emoji} ${STAGES[b.dataset.stage].name} 단계로 바꿨어요`, 'ok');
+      render();
+    }));
     $$('[data-lang]').forEach(b => b.addEventListener('click', () => {
       if (b.dataset.lang === curLang()) return;
       Store.saveSettings({ lang: b.dataset.lang });
@@ -276,19 +296,22 @@
   ======================================================== */
   function renderScenarios() {
     const q = state.search.trim().toLowerCase();
+    const st = curStage();
+    const mine = stageScenarios(st);
+    if (state.cat !== 'all' && (!CATEGORY_MAP[state.cat] || CATEGORY_MAP[state.cat].stage !== st)) state.cat = 'all';
     const hay = s => (s.title + s.en + localize(s, curLang()).subtitle + s.situation + s.missions.join(' ')).toLowerCase();
-    let list = SCENARIOS.filter(s => state.cat === 'all' || s.cat === state.cat);
+    let list = mine.filter(s => state.cat === 'all' || s.cat === state.cat);
     if (state.level) list = list.filter(s => s.level === state.level);
     if (q) list = list.filter(s => hay(s).includes(q));
     const cat = state.cat === 'all' ? null : CATEGORY_MAP[state.cat];
 
     main.innerHTML = `
-      <h2 class="section-title">${cat ? `${cat.emoji} ${esc(cat.name)}` : '🎭 모든 상황'} <small>${list.length}개</small></h2>
+      <h2 class="section-title">${cat ? `${cat.emoji} ${esc(cat.name)}` : `🎭 ${STAGES[st].name} 모든 상황`} <small>${list.length}개</small></h2>
       ${cat ? `<p style="margin:-6px 0 10px"><small>${esc(cat.desc)}</small></p>` : ''}
-      <div style="margin:0 0 10px">${langToggle(true)}</div>
+      <div class="toggles" style="margin:0 0 10px">${langToggle(true)}${stageToggle(true)}</div>
       <div class="chips">
         <button class="chip ${state.cat === 'all' ? 'active' : ''}" data-chip="all">전체</button>
-        ${CATEGORIES.map(c => `<button class="chip ${state.cat === c.id ? 'active' : ''}" data-chip="${c.id}">${c.emoji} ${esc(c.name)}</button>`).join('')}
+        ${stageCategories(st).map(c => `<button class="chip ${state.cat === c.id ? 'active' : ''}" data-chip="${c.id}">${c.emoji} ${esc(c.name)}</button>`).join('')}
       </div>
       <div class="search">
         <input id="search" type="search" placeholder="🔍 상황 검색 (예: 주문, 친구, 병원)" value="${esc(state.search)}">
@@ -308,7 +331,7 @@
       // 입력 유지하면서 목록만 갱신
       const grid = $('.scn-grid') || $('.empty');
       const q2 = state.search.trim().toLowerCase();
-      let l2 = SCENARIOS.filter(s => state.cat === 'all' || s.cat === state.cat);
+      let l2 = mine.filter(s => state.cat === 'all' || s.cat === state.cat);
       if (state.level) l2 = l2.filter(s => s.level === state.level);
       if (q2) l2 = l2.filter(s => hay(s).includes(q2));
       const html = l2.length ? `<div class="scn-grid">${l2.map(scenarioCard).join('')}</div>` : `<div class="empty">🔎 조건에 맞는 상황이 없어요.</div>`;
@@ -334,6 +357,7 @@
       </div>
       <div class="info-row" style="align-items:center">
         ${langToggle(true)}
+        ${stageTag(s.stage || 'elem')}
         <span class="pill" style="border-left:5px solid ${c.color}">${c.emoji} ${esc(c.name)}</span>
         <span class="pill">난이도 ${'●'.repeat(s.level)}${'○'.repeat(3 - s.level)}</span>
         ${past.length ? `<span class="pill">🏅 ${past.length}번 완료 · 최고 ${'⭐'.repeat(best)}</span>` : ''}
@@ -369,7 +393,7 @@
     const s = SCENARIO_MAP[id];
     const lg = curLang(); const lc = localize(s, lg);
     const session = {
-      id: uid(), scenarioId: id, lang: lg, startedAt: Date.now(), endedAt: null,
+      id: uid(), scenarioId: id, lang: lg, stage: s.stage || 'elem', startedAt: Date.now(), endedAt: null,
       messages: [{ role: 'ai', text: lc.opener, at: Date.now() }],
       missionsDone: [], report: null, demo: !API.hasKey(),
     };
@@ -515,7 +539,7 @@
     if (!m || m.role !== 'ai') return;
     if (m.ko) { m.koOpen = !m.koOpen; Store.saveSession(state.session); render(); return; }
     m.koLoading = true; render();
-    try { m.ko = await API.translate(m.text, sessLang(state.session)); m.koOpen = true; }
+    try { m.ko = await API.translate(m.text, sessLang(state.session), sessStage(state.session)); m.koOpen = true; }
     catch (e) { toast(e.message === 'NO_KEY' ? '설정에서 API 키를 입력해 주세요.' : e.message, 'error'); }
     m.koLoading = false; Store.saveSession(state.session); render();
   }
@@ -695,8 +719,9 @@
   function renderHistory() {
     const { period, offset } = state.hist;
     const hl = state.hist.lang || 'all';
+    const hs = state.hist.stage || 'all';
     const range = periodRange(period, offset);
-    const all = Store.getHistory().filter(s => userCount(s) > 0 && (hl === 'all' || sessLang(s) === hl)).sort((a, b) => b.startedAt - a.startedAt);
+    const all = Store.getHistory().filter(s => userCount(s) > 0 && (hl === 'all' || sessLang(s) === hl) && (hs === 'all' || sessStage(s) === hs)).sort((a, b) => b.startedAt - a.startedAt);
     const list = all.filter(s => s.startedAt >= +range.start && s.startedAt < +range.end);
 
     const sentences = list.reduce((n, s) => n + userCount(s), 0);
@@ -715,6 +740,10 @@
       <h2 class="section-title">📊 나의 대화 기록</h2>
       <div class="chips" style="padding-top:0">
         ${[['all', '🌐 전체 언어'], ['en', '🇺🇸 영어'], ['ja', '🇯🇵 일본어']].map(([k, n]) => `<button class="chip ${hl === k ? 'active' : ''}" data-hlang="${k}">${n}</button>`).join('')}
+      </div>
+      <div class="chips" style="padding-top:0">
+        <button class="chip ${hs === 'all' ? 'active' : ''}" data-hstage="all">📚 전체 단계</button>
+        ${Object.values(STAGES).map(s => `<button class="chip ${hs === s.code ? 'active' : ''}" data-hstage="${s.code}">${s.emoji} ${s.name}</button>`).join('')}
       </div>
       <div class="seg">
         ${[['day', '하루'], ['week', '일주일'], ['month', '한 달'], ['all', '전체']].map(([k, n]) => `<button class="${period === k ? 'active' : ''}" data-period="${k}">${n}</button>`).join('')}
@@ -748,8 +777,9 @@
       <h2 class="section-title">대화 목록 <small>${list.length}개</small></h2>
       ${list.length ? `<div class="list">${list.map(histItem).join('')}</div>` : `<div class="empty">아직 이 기간에는 대화가 없어요.<br>새로운 상황을 골라 시작해 보세요! 🎭<br><br><button class="btn" data-go="scenarios">상황 고르기</button></div>`}
     `;
-    $$('[data-period]').forEach(b => b.addEventListener('click', () => { state.hist = { period: b.dataset.period, offset: 0, lang: hl }; render(); }));
+    $$('[data-period]').forEach(b => b.addEventListener('click', () => { state.hist = { period: b.dataset.period, offset: 0, lang: hl, stage: hs }; render(); }));
     $$('[data-hlang]').forEach(b => b.addEventListener('click', () => { state.hist.lang = b.dataset.hlang; render(); }));
+    $$('[data-hstage]').forEach(b => b.addEventListener('click', () => { state.hist.stage = b.dataset.hstage; render(); }));
     $('#h-prev').addEventListener('click', () => { state.hist.offset--; render(); });
     $('#h-next').addEventListener('click', () => { state.hist.offset++; render(); });
     $$('[data-hist]').forEach(b => b.addEventListener('click', () => openHistoryModal(b.dataset.hist)));
@@ -764,7 +794,7 @@
         <span class="emoji">${sc.emoji}</span>
         <div class="grow">
           <b>${LANGS[sessLang(s)].flag} ${esc(sc.title)}</b>
-          <small>${fmtDate(s.startedAt)} ${fmtTime(s.startedAt)} · ${userCount(s)}문장 · ${fmtDur(sessionDuration(s))} · 미션 ${(s.missionsDone || []).length}/${sc.missions.length}</small>
+          <small>${STAGES[sessStage(s)].emoji} ${STAGES[sessStage(s)].name} · ${fmtDate(s.startedAt)} ${fmtTime(s.startedAt)} · ${userCount(s)}문장 · ${fmtDur(sessionDuration(s))} · 미션 ${(s.missionsDone || []).length}/${sc.missions.length}</small>
         </div>
         <div class="right">${stars}${s.demo ? '<br><small>데모</small>' : ''}</div>
       </button>`;
@@ -810,7 +840,12 @@
         <div class="field">
           <label>🌐 배우는 언어</label>
           ${langToggle(true)}
-          <span class="hint">홈 화면과 상황 선택 창에서도 바꿀 수 있어요. 일본어는 한자 없이 히라가나·가타카나로 대화해요.</span>
+          <span class="hint">홈 화면과 상황 선택 창에서도 바꿀 수 있어요.</span>
+        </div>
+        <div class="field">
+          <label>📚 학습 단계</label>
+          ${stageToggle(true)}
+          <span class="hint">${Object.values(STAGES).map(s => `${s.emoji} ${s.name}: ${esc(s.desc)}`).join('<br>')}<br>일본어는 초등은 히라가나·가타카나만, 중등부터 한자를 사용하고 "뜻 보기"에 읽는 법이 함께 나와요.</span>
         </div>
         <div class="field">
           <label for="s-name">🙋 내 이름 (영어 이름도 좋아요)</label>
@@ -859,7 +894,7 @@
         </div>
       </div>
 
-      <p style="margin:20px 0 0; text-align:center"><small>Talk Buddy · 초등 5학년 영어·일본어 회화 연습 앱 · 상황 ${SCENARIOS.length}개 × 2개 언어</small></p>
+      <p style="margin:20px 0 0; text-align:center"><small>Talk Buddy · 영어·일본어 회화 연습 앱 · ${Object.values(STAGES).map(s => `${s.name} ${stageScenarios(s.code).length}`).join(' · ')} = 상황 ${SCENARIOS.length}개 × 2개 언어</small></p>
     `;
 
     $('#s-eye').addEventListener('click', () => { const k = $('#s-key'); k.type = k.type === 'password' ? 'text' : 'password'; });
@@ -878,6 +913,7 @@
       const k = b.dataset.toggle; Store.saveSettings({ [k]: !Store.getSettings()[k] }); render();
     }));
     $$('[data-lang]').forEach(b => b.addEventListener('click', () => { Store.saveSettings({ lang: b.dataset.lang }); render(); }));
+    $$('[data-stage]').forEach(b => b.addEventListener('click', () => { Store.saveSettings({ stage: b.dataset.stage }); state.cat = 'all'; render(); }));
     $('#s-export').addEventListener('click', () => {
       const blob = new Blob([Store.exportJSON()], { type: 'application/json' });
       const a = document.createElement('a'); a.href = URL.createObjectURL(blob);

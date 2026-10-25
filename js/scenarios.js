@@ -623,9 +623,43 @@ const SCENARIOS = [
     opener: "Oh, there's my favorite grandchild! I can see you! How are you, sweetheart?" },
 ];
 
-/* 빠른 조회용 */
-const SCENARIO_MAP = Object.fromEntries(SCENARIOS.map(s => [s.id, s]));
-const CATEGORY_MAP = Object.fromEntries(CATEGORIES.map(c => [c.id, c]));
+/* ------------------------------------------------------------
+   학습 단계
+   - elem: 초등 (위 84개), middle / high / adult 는 scenarios_*.js 에서 등록
+------------------------------------------------------------- */
+const STAGES = {
+  elem:   { code: 'elem',   emoji: '🧒', name: '초등', desc: '초등학생 · 쉬운 문장으로 기초 회화' },
+  middle: { code: 'middle', emoji: '🎒', name: '중등', desc: '중학생 · 학교와 일상의 자연스러운 대화' },
+  high:   { code: 'high',   emoji: '🎓', name: '고등', desc: '고등학생 · 의견 말하기, 진로, 자립' },
+  adult:  { code: 'adult',  emoji: '💼', name: '일반', desc: '성인 · 비즈니스, 해외 생활, 사교' },
+};
+CATEGORIES.forEach(c => { c.stage = 'elem'; });
+SCENARIOS.forEach(s => { s.stage = 'elem'; });
+
+/* 빠른 조회용 (단계 팩 등록 시 갱신) */
+const SCENARIO_MAP = {};
+const CATEGORY_MAP = {};
+function rebuildMaps() {
+  for (const k of Object.keys(SCENARIO_MAP)) delete SCENARIO_MAP[k];
+  for (const k of Object.keys(CATEGORY_MAP)) delete CATEGORY_MAP[k];
+  SCENARIOS.forEach(s => { SCENARIO_MAP[s.id] = s; });
+  CATEGORIES.forEach(c => { CATEGORY_MAP[c.id] = c; });
+}
+rebuildMaps();
+
+/** 단계별 상황 팩 등록: { categories, scenarios(각각 ja 포함 가능) } */
+function registerStagePack(stage, pack) {
+  if (!STAGES[stage]) return;
+  (pack.categories || []).forEach(c => { c.stage = stage; CATEGORIES.push(c); });
+  (pack.scenarios || []).forEach(s => {
+    s.stage = stage;
+    if (s.ja && typeof SCENARIOS_JA !== 'undefined') { SCENARIOS_JA[s.id] = s.ja; }
+    SCENARIOS.push(s);
+  });
+  rebuildMaps();
+}
+const stageScenarios = stage => SCENARIOS.filter(s => s.stage === stage);
+const stageCategories = stage => CATEGORIES.filter(c => c.stage === stage);
 
 /* ------------------------------------------------------------
    배우는 언어
