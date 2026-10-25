@@ -19,6 +19,17 @@
 
 > `index.html`을 더블클릭해 `file://`로 열어도 동작합니다. 다만 마이크(음성 인식)는 `http://localhost` 또는 `https`에서만 됩니다.
 
+## 🌐 배포된 주소
+
+**https://jeedan81.github.io/talk-buddy/** (GitHub Pages, 저장소: https://github.com/jeedan81/talk-buddy)
+
+휴대폰 브라우저에서 위 주소를 열고 홈 화면에 추가하면 앱처럼 쓸 수 있어요.
+코드를 고친 뒤에는 이 폴더에서 아래처럼 올리면 1~2분 뒤 반영됩니다.
+
+```bash
+git add -A; git commit -m "변경 내용"; git push
+```
+
 ## 📱 휴대폰에서 앱처럼 쓰기 (PWA)
 
 이 앱은 PWA(설치형 웹앱)입니다. 인터넷 주소로 한 번 열면 휴대폰 홈 화면에 아이콘으로 설치되고, 전체 화면으로 열립니다. 앱 파일은 기기에 캐시되어 다음부터 빠르게 뜹니다. (대화에는 인터넷이 필요해요.)
