@@ -67,11 +67,11 @@
       };
       pick(); speechSynthesis.onvoiceschanged = pick;
     },
-    speak(text, lg = 'en') {
+    speak(text, lg = 'en', rate) {
       if (!('speechSynthesis' in window) || !text) return;
       speechSynthesis.cancel();
       const u = new SpeechSynthesisUtterance(text);
-      u.lang = (LANGS[lg] || LANGS.en).tts; u.rate = lg === 'ja' ? 0.85 : 0.88; u.pitch = 1.05;
+      u.lang = (LANGS[lg] || LANGS.en).tts; u.rate = rate || (lg === 'ja' ? 0.85 : 0.88); u.pitch = 1.05;
       if (this.voices[lg]) u.voice = this.voices[lg];
       speechSynthesis.speak(u);
     },
@@ -138,6 +138,7 @@
   function navigate(screen, patch = {}) {
     Object.assign(state, patch, { screen });
     if (screen !== 'chat') { Speech.stopListening(); }
+    if (screen !== 'games') { Games.reset(); Speech.stop(); }
     window.scrollTo(0, 0);
     render();
   }
@@ -146,7 +147,7 @@
     const navActive = { chat: 'scenarios', report: 'scenarios' }[state.screen] || state.screen;
     $$('.bottom-nav button').forEach(b => b.classList.toggle('active', b.dataset.nav === navActive));
     document.body.classList.toggle('in-chat', state.screen === 'chat');
-    $('#btn-back').hidden = !['chat', 'report'].includes(state.screen) && !(state.screen === 'scenarios' && state.cat !== 'all');
+    $('#btn-back').hidden = !['chat', 'report'].includes(state.screen) && !(state.screen === 'scenarios' && state.cat !== 'all') && !(state.screen === 'games' && Games.inGame());
     $('#streak-badge').textContent = `🔥 ${calcStreak()}일`;
 
     switch (state.screen) {
@@ -154,6 +155,7 @@
       case 'scenarios': renderScenarios(); break;
       case 'chat':      renderChat(); break;
       case 'report':    renderReport(); break;
+      case 'games':     Games.render(); break;
       case 'history':   renderHistory(); break;
       case 'settings':  renderSettings(); break;
     }
@@ -219,6 +221,17 @@
         ${state.installPrompt ? `<button class="btn small" id="btn-install">설치</button>` : ''}
         <button class="icon-btn" id="btn-install-hide" aria-label="닫기" style="width:32px;height:32px;font-size:14px;box-shadow:none;background:transparent">✕</button>
       </div>` : ''}
+
+      ${(() => { const g = Games.summary(); const pct = Math.min(100, Math.round(g.todayXp / g.goal * 100)); return `
+      <button class="card" data-go="games" style="margin-top:14px; display:flex; gap:12px; align-items:center; width:100%; text-align:left">
+        <span style="font-size:30px">🎮</span>
+        <div style="flex:1; min-width:0">
+          <b>게임으로 단어·문장·문법 익히기</b>
+          <p><small>Lv.${g.level} · 오늘 ${Math.min(g.todayXp, g.goal)}/${g.goal} XP ${g.todayXp >= g.goal ? '🎉 목표 달성!' : ''}</small></p>
+          <div class="xbar thin" style="margin:6px 0 0"><i style="width:${pct}%"></i></div>
+        </div>
+        <span style="font-size:18px">›</span>
+      </button>`; })()}
 
       ${resume ? `
       <button class="card resume-card" data-resume="${resume.id}">
@@ -731,6 +744,10 @@
     const stars = finished.reduce((n, s) => n + (s.report && s.report.stars || 0), 0);
     const missions = list.reduce((n, s) => n + (s.missionsDone || []).length, 0);
 
+    // 게임 기록 (같은 기간 · 같은 필터)
+    const games = Store.getProgress().games.filter(g => g.at >= +range.start && g.at < +range.end && (hl === 'all' || g.lang === hl) && (hs === 'all' || g.stage === hs));
+    const gameXp = games.reduce((n, g) => n + g.xp, 0);
+
     // 카테고리별 분포
     const byCat = {};
     for (const s of list) { const c = SCENARIO_MAP[s.scenarioId] && SCENARIO_MAP[s.scenarioId].cat; if (c) byCat[c] = (byCat[c] || 0) + 1; }
@@ -761,6 +778,8 @@
         <div class="stat-tile"><b>${uniq}</b><small>🎭 완료한 상황 (종류)</small></div>
         <div class="stat-tile"><b>${missions}</b><small>🎯 완료한 미션</small></div>
         <div class="stat-tile"><b>${stars}</b><small>⭐ 받은 별</small></div>
+        <div class="stat-tile"><b>${games.length}</b><small>🎮 게임 횟수</small></div>
+        <div class="stat-tile"><b>${gameXp}</b><small>✨ 게임 XP</small></div>
       </div>
 
       <div class="card" style="margin-top:12px">
@@ -927,7 +946,7 @@
       catch { toast('파일을 읽을 수 없어요.', 'error'); }
     });
     $('#s-clear').addEventListener('click', () => {
-      if (confirm('모든 대화 기록을 지울까요? 되돌릴 수 없어요.')) { Store.clearHistory(); toast('모든 기록을 지웠어요.'); render(); }
+      if (confirm('모든 대화 기록과 게임 XP를 지울까요? 되돌릴 수 없어요.')) { Store.clearHistory(); toast('모든 기록을 지웠어요.'); render(); }
     });
   }
 
@@ -936,6 +955,13 @@
   ======================================================== */
   function init() {
     Speech.init();
+    Games.init({
+      main, esc, shuffle, toast,
+      getLang: curLang, getStage: curStage, getStreak: calcStreak,
+      speak: (t, l, rate) => Speech.speak(t, l, rate),
+      toggles: () => langToggle(true) + stageToggle(true),
+      bindCommon, rerender: render,
+    });
     $$('.bottom-nav button').forEach(b => b.addEventListener('click', () => {
       if (state.screen === 'chat' && state.session && userCount(state.session) === 0) { Store.deleteSession(state.session.id); Store.setCurrentId(null); }
       navigate(b.dataset.nav, b.dataset.nav === 'scenarios' ? { cat: 'all', search: '' } : {});
@@ -944,6 +970,7 @@
     $('#btn-back').addEventListener('click', () => {
       if (state.screen === 'chat') confirmEnd();
       else if (state.screen === 'report') navigate('scenarios');
+      else if (state.screen === 'games') Games.back();
       else navigate('home');
     });
     document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });

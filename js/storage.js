@@ -8,6 +8,7 @@ const Store = (() => {
     settings: 'talkbuddy.settings',
     history:  'talkbuddy.history',
     current:  'talkbuddy.current',
+    progress: 'talkbuddy.progress',
   };
 
   const DEFAULT_SETTINGS = {
@@ -54,7 +55,24 @@ const Store = (() => {
   }
   function getSession(id) { return getHistory().find(s => s.id === id) || null; }
   function deleteSession(id) { write(KEYS.history, getHistory().filter(s => s.id !== id)); }
-  function clearHistory() { write(KEYS.history, []); localStorage.removeItem(KEYS.current); }
+  function clearHistory() { write(KEYS.history, []); localStorage.removeItem(KEYS.current); localStorage.removeItem(KEYS.progress); }
+
+  /* ----- 게임 진행도 (XP, 아는 단어, 게임 기록) -----
+     progress = { xp, known: { 'en:apple': ts }, games: [{ id, lang, stage, score, total, xp, at }] } */
+  function getProgress() { return { xp: 0, known: {}, games: [], ...read(KEYS.progress, {}) }; }
+  function saveProgress(p) { write(KEYS.progress, p); }
+  function addGameResult(r) {
+    const p = getProgress();
+    p.games.push({ ...r, at: Date.now() });
+    if (p.games.length > 500) p.games = p.games.slice(-500);
+    p.xp += r.xp || 0;
+    saveProgress(p); return p;
+  }
+  function setKnown(key, val) {
+    const p = getProgress();
+    if (val) p.known[key] = Date.now(); else delete p.known[key];
+    saveProgress(p);
+  }
 
   /* ----- 진행 중인 세션 ----- */
   function getCurrentId() { return read(KEYS.current, null); }
@@ -62,7 +80,7 @@ const Store = (() => {
 
   /* ----- 내보내기 / 가져오기 ----- */
   function exportJSON() {
-    return JSON.stringify({ app: 'talkbuddy', version: 1, exportedAt: new Date().toISOString(), history: getHistory() }, null, 2);
+    return JSON.stringify({ app: 'talkbuddy', version: 2, exportedAt: new Date().toISOString(), history: getHistory(), progress: getProgress() }, null, 2);
   }
   function importJSON(text) {
     const data = JSON.parse(text);
@@ -75,9 +93,17 @@ const Store = (() => {
       if (s && s.id && s.scenarioId && !ids.has(s.id)) { list.push(s); ids.add(s.id); added++; }
     }
     write(KEYS.history, list);
+    if (data && data.progress && typeof data.progress === 'object') {
+      const cur = getProgress(); const inc = data.progress;
+      const have = new Set(cur.games.map(g => g.at + ':' + g.id));
+      for (const g of (inc.games || [])) if (g && !have.has(g.at + ':' + g.id)) { cur.games.push(g); cur.xp += g.xp || 0; }
+      cur.known = { ...(inc.known || {}), ...cur.known };
+      saveProgress(cur);
+    }
     return added;
   }
 
   return { getSettings, saveSettings, getHistory, saveSession, getSession, deleteSession, clearHistory,
-           getCurrentId, setCurrentId, exportJSON, importJSON };
+           getCurrentId, setCurrentId, exportJSON, importJSON,
+           getProgress, saveProgress, addGameResult, setKnown };
 })();
