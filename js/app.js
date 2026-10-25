@@ -121,6 +121,42 @@
     const cur = curStage();
     return `<div class="lang-toggle stage ${dark ? 'dark' : ''}" role="group" aria-label="학습 단계">${Object.values(STAGES).map(s => `<button type="button" class="${cur === s.code ? 'active' : ''}" data-stage="${s.code}" title="${esc(s.desc)}">${s.emoji} ${s.name}</button>`).join('')}</div>`;
   }
+  /* ---------- 마스코트 "버디" (SVG, 표정: happy / cheer / think / sad) ---------- */
+  function mascot(mood = 'happy', size = 96) {
+    const faces = {
+      happy: { eyes: 'open',   mouth: '<path d="M38 60q12 12 24 0" fill="none" stroke="#2B2D42" stroke-width="3.5" stroke-linecap="round"/>' },
+      cheer: { eyes: 'closed', mouth: '<path d="M36 58q14 18 28 0z" fill="#2B2D42"/><path d="M42 66q8 5 16 0z" fill="#FF8FAB"/>', extra: '<text x="76" y="22" font-size="14">✨</text><text x="6" y="30" font-size="12">✨</text>' },
+      think: { eyes: 'open',   mouth: '<circle cx="50" cy="62" r="3.5" fill="#2B2D42"/>', extra: '<circle cx="84" cy="26" r="3" fill="#fff" opacity=".9"/><circle cx="92" cy="16" r="4.5" fill="#fff" opacity=".9"/>' },
+      sad:   { eyes: 'open',   mouth: '<path d="M38 65q12 -10 24 0" fill="none" stroke="#2B2D42" stroke-width="3.5" stroke-linecap="round"/>' },
+    };
+    const f = faces[mood] || faces.happy;
+    const eyes = f.eyes === 'closed'
+      ? '<path d="M32 46q7 -7 14 0M54 46q7 -7 14 0" fill="none" stroke="#2B2D42" stroke-width="3.5" stroke-linecap="round"/>'
+      : '<circle cx="39" cy="46" r="5.5" fill="#2B2D42"/><circle cx="61" cy="46" r="5.5" fill="#2B2D42"/><circle cx="41" cy="44" r="2" fill="#fff"/><circle cx="63" cy="44" r="2" fill="#fff"/>';
+    return `<svg class="mascot" viewBox="0 0 100 100" width="${size}" height="${size}" aria-hidden="true">
+      <defs><linearGradient id="mg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#FFB84D"/><stop offset="1" stop-color="#FF8A3D"/></linearGradient></defs>
+      <path d="M50 8C26 8 10 23 10 44c0 12 6 22 16 28l-2 16 14-10c4 1 8 1.5 12 1.5 24 0 40-14 40-35S74 8 50 8z" fill="url(#mg)"/>
+      <ellipse cx="29" cy="56" rx="5" ry="3" fill="#FF8FAB" opacity=".75"/><ellipse cx="71" cy="56" rx="5" ry="3" fill="#FF8FAB" opacity=".75"/>
+      ${eyes}${f.mouth}${f.extra || ''}
+    </svg>`;
+  }
+
+  /* ---------- 언어·단계 선택 칩 + 시트 ---------- */
+  const learnChip = (dark = false) => `<button class="chip-select ${dark ? 'dark' : ''}" data-learn>${LANGS[curLang()].flag} ${LANGS[curLang()].name} · ${STAGES[curStage()].emoji} ${STAGES[curStage()].name}<span>바꾸기 ▾</span></button>`;
+  function openLearnSheet() {
+    openModal(`
+      <div class="modal-head"><span class="emoji">${mascot('happy', 56)}</span><div><h2>무엇을 배울까요?</h2><small>언어와 단계를 골라요</small></div><button class="modal-close" aria-label="닫기">✕</button></div>
+      <h3 class="section-title" style="font-size:15px">🌐 언어</h3>
+      <div class="pick-grid">${Object.values(LANGS).map(l => `<button class="pick ${curLang() === l.code ? 'on' : ''}" data-pick-lang="${l.code}"><span>${l.flag}</span><b>${l.name}</b></button>`).join('')}</div>
+      <h3 class="section-title" style="font-size:15px">📚 단계</h3>
+      <div class="pick-grid four">${Object.values(STAGES).map(s => `<button class="pick ${curStage() === s.code ? 'on' : ''}" data-pick-stage="${s.code}"><span>${s.emoji}</span><b>${s.name}</b><small>${esc(s.desc.split(' · ')[0])}</small></button>`).join('')}</div>
+      <p style="margin-top:10px"><small>${esc(STAGES[curStage()].desc)}</small></p>
+      <div style="margin-top:14px"><button class="btn full modal-close">완료</button></div>
+    `);
+    $$('[data-pick-lang]', modalRoot).forEach(b => b.addEventListener('click', () => { Store.saveSettings({ lang: b.dataset.pickLang }); openLearnSheet(); render(); }));
+    $$('[data-pick-stage]', modalRoot).forEach(b => b.addEventListener('click', () => { Store.saveSettings({ stage: b.dataset.pickStage }); state.cat = 'all'; openLearnSheet(); render(); }));
+  }
+
   function completedScenarioIds(lg = curLang()) {
     return new Set(Store.getHistory().filter(s => s.endedAt && sessLang(s) === lg).map(s => s.scenarioId));
   }
@@ -184,54 +220,41 @@
     const current = currentId ? Store.getSession(currentId) : null;
     const resume = current && !current.endedAt && SCENARIO_MAP[current.scenarioId] ? current : null;
 
-    // 추천 상황: 아직 안 해본 것 위주로 3개
+    // 오늘의 추천: 아직 안 해본 것 중 하나 (하루 동안 고정)
     const done = completedScenarioIds();
     const pool = myScenarios.filter(s => !done.has(s.id));
-    const picks = shuffle(pool.length >= 3 ? pool : myScenarios).slice(0, 3);
+    const cand = pool.length ? pool : myScenarios;
+    const daySeed = Math.floor(Date.now() / DAY);
+    const pick = cand[daySeed % cand.length];
+    const pickCat = CATEGORY_MAP[pick.cat], pickLc = localize(pick, curLang());
+    const g = Games.summary();
+    const pct = Math.min(100, Math.round(g.todayXp / g.goal * 100));
+    const mood = hour >= 22 || hour < 6 ? 'think' : (g.todayXp >= g.goal ? 'cheer' : 'happy');
 
     main.innerHTML = `
-      <section class="hero">
-        <h1>${hello} 👋</h1>
-        <p>${sub}</p>
-        <div class="toggles" style="margin-top:12px">${langToggle()}${stageToggle()}</div>
-        <div class="stats">
-          <div class="stat"><b>${today.length}</b><span>오늘 대화</span></div>
-          <div class="stat"><b>${sentences}</b><span>말한 문장</span></div>
-          <div class="stat"><b>${minutes}</b><span>공부한 분</span></div>
+      <section class="hero2">
+        <div class="hero-mascot">${mascot(mood, 104)}</div>
+        <div class="hero-text">
+          <h1>${hello}</h1>
+          <p>${sub}</p>
+          ${learnChip()}
         </div>
       </section>
 
-      ${!API.hasKey() ? `
-      <div class="card" style="margin-top:14px; display:flex; gap:12px; align-items:center;">
-        <span style="font-size:30px">🔑</span>
-        <div style="flex:1">
-          <b>아직 데모 모드예요</b>
-          <p><small>설정에서 OpenAI API 키를 넣으면 진짜 AI와 대화할 수 있어요.</small></p>
-        </div>
-        <button class="btn small accent" data-go="settings">설정</button>
-      </div>` : ''}
+      <div class="quick-grid">
+        <button class="quick" data-go="scenarios"><span class="q-ico" style="background:#FFF1E3">🗣️</span><b>대화하기</b><small>상황 ${myScenarios.length}개</small></button>
+        <button class="quick" data-go="games"><span class="q-ico" style="background:#EEF3FF">🎮</span><b>게임하기</b><small>단어·문장·문법</small></button>
+        <button class="quick" data-go="history"><span class="q-ico" style="background:#E6F9EE">📊</span><b>내 기록</b><small>하루·주·달</small></button>
+      </div>
 
-      ${!isStandalone() && !installHidden() ? `
-      <div class="card" style="margin-top:14px; display:flex; gap:12px; align-items:center;">
-        <span style="font-size:30px">📱</span>
-        <div style="flex:1">
-          <b>휴대폰에 앱으로 설치하기</b>
-          <p><small>${state.installPrompt ? '홈 화면에 아이콘이 생기고 전체 화면으로 열려요.' : isIOS() ? 'Safari 아래 <b>공유(⬆)</b> → <b>홈 화면에 추가</b>를 누르세요.' : 'Chrome 메뉴(⋮) → <b>앱 설치</b> 또는 <b>홈 화면에 추가</b>를 누르세요.'}</small></p>
-        </div>
-        ${state.installPrompt ? `<button class="btn small" id="btn-install">설치</button>` : ''}
-        <button class="icon-btn" id="btn-install-hide" aria-label="닫기" style="width:32px;height:32px;font-size:14px;box-shadow:none;background:transparent">✕</button>
-      </div>` : ''}
+      <div class="status-strip">
+        <span>🔥 ${calcStreak()}일 연속</span>
+        <span>💬 오늘 ${today.length}회 · ${sentences}문장</span>
+        <span>🏅 Lv.${g.level}</span>
+        <div class="goal"><span>오늘 목표</span><div class="xbar thin goal"><i style="width:${pct}%"></i></div><span>${Math.min(g.todayXp, g.goal)}/${g.goal} XP${g.todayXp >= g.goal ? ' 🎉' : ''}</span></div>
+      </div>
 
-      ${(() => { const g = Games.summary(); const pct = Math.min(100, Math.round(g.todayXp / g.goal * 100)); return `
-      <button class="card" data-go="games" style="margin-top:14px; display:flex; gap:12px; align-items:center; width:100%; text-align:left">
-        <span style="font-size:30px">🎮</span>
-        <div style="flex:1; min-width:0">
-          <b>게임으로 단어·문장·문법 익히기</b>
-          <p><small>Lv.${g.level} · 오늘 ${Math.min(g.todayXp, g.goal)}/${g.goal} XP ${g.todayXp >= g.goal ? '🎉 목표 달성!' : ''}</small></p>
-          <div class="xbar thin" style="margin:6px 0 0"><i style="width:${pct}%"></i></div>
-        </div>
-        <span style="font-size:18px">›</span>
-      </button>`; })()}
+      ${!API.hasKey() ? `<button class="notice" data-go="settings">🔑 지금은 데모 모드예요. 설정에서 API 키를 넣으면 진짜 AI와 대화해요 ›</button>` : ''}
 
       ${resume ? `
       <button class="card resume-card" data-resume="${resume.id}">
@@ -243,30 +266,29 @@
         <span>▶</span>
       </button>` : ''}
 
-      <h2 class="section-title">오늘의 추천 상황 <button class="link" data-go="scenarios">전체 보기 ›</button></h2>
-      <div class="scn-grid">${picks.map(scenarioCard).join('')}</div>
+      <h2 class="section-title">⭐ 오늘의 추천 <button class="link" data-go="scenarios">전체 보기 ›</button></h2>
+      <button class="card reco" data-scn="${pick.id}" style="--c:${pickCat.color}">
+        <span class="reco-emoji">${pick.emoji}</span>
+        <div class="grow" style="min-width:0">
+          <b>${esc(pick.title)}</b>
+          <small>${esc(pickLc.subtitle)}</small>
+          <small>${pickCat.emoji} ${esc(pickCat.name)} · 난이도 ${'●'.repeat(pick.level)}${'○'.repeat(3 - pick.level)}</small>
+        </div>
+        <span class="btn small">시작 ▶</span>
+      </button>
 
-      <h2 class="section-title">${STAGES[st].emoji} ${STAGES[st].name} 카테고리 <small>${myScenarios.length}개 상황</small></h2>
+      <h2 class="section-title">🎭 상황 고르기 <small>${STAGES[st].emoji} ${STAGES[st].name}</small></h2>
       <div class="cat-grid">
         ${myCategories.map(c => `
           <button class="cat-card" style="--c:${c.color}" data-cat="${c.id}">
             <span class="emoji">${c.emoji}</span>
             <b>${esc(c.name)}</b>
-            <small>${myScenarios.filter(s => s.cat === c.id).length}개 상황</small>
+            <small>${myScenarios.filter(s => s.cat === c.id).length}개</small>
           </button>`).join('')}
       </div>
     `;
     bindCommon();
     $$('[data-resume]').forEach(b => b.addEventListener('click', () => resumeSession(b.dataset.resume)));
-    const inst = $('#btn-install');
-    if (inst) inst.addEventListener('click', async () => {
-      const p = state.installPrompt; if (!p) return;
-      p.prompt();
-      const { outcome } = await p.userChoice.catch(() => ({ outcome: 'dismissed' }));
-      if (outcome === 'accepted') { state.installPrompt = null; toast('설치했어요! 홈 화면에서 열어 보세요 📱', 'ok'); render(); }
-    });
-    const hide = $('#btn-install-hide');
-    if (hide) hide.addEventListener('click', () => { try { localStorage.setItem('talkbuddy.installHidden', '1'); } catch { /* ignore */ } render(); });
   }
 
   function shuffle(arr) { const a = arr.slice(); for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; }
@@ -286,6 +308,7 @@
   }
 
   function bindCommon() {
+    $$('[data-learn]').forEach(b => b.addEventListener('click', openLearnSheet));
     $$('[data-stage]').forEach(b => b.addEventListener('click', () => {
       if (b.dataset.stage === curStage()) return;
       Store.saveSettings({ stage: b.dataset.stage });
@@ -321,7 +344,7 @@
     main.innerHTML = `
       <h2 class="section-title">${cat ? `${cat.emoji} ${esc(cat.name)}` : `🎭 ${STAGES[st].name} 모든 상황`} <small>${list.length}개</small></h2>
       ${cat ? `<p style="margin:-6px 0 10px"><small>${esc(cat.desc)}</small></p>` : ''}
-      <div class="toggles" style="margin:0 0 10px">${langToggle(true)}${stageToggle(true)}</div>
+      <div style="margin:0 0 10px">${learnChip(true)}</div>
       <div class="chips">
         <button class="chip ${state.cat === 'all' ? 'active' : ''}" data-chip="all">전체</button>
         ${stageCategories(st).map(c => `<button class="chip ${state.cat === c.id ? 'active' : ''}" data-chip="${c.id}">${c.emoji} ${esc(c.name)}</button>`).join('')}
@@ -427,29 +450,31 @@
     const allDone = ss.missionsDone.length >= s.missions.length;
     const settings = Store.getSettings();
 
+    const nextMission = s.missions.find((m, i) => !ss.missionsDone.includes(i + 1));
     main.innerHTML = `
       <section class="chat">
         <div class="chat-head">
-          <span class="emoji">${s.emoji}</span>
+          <span class="avatar big">${s.emoji}</span>
           <div class="title">
-            <b>${LANGS[lg].flag} ${esc(s.title)} ${ss.demo ? '<span class="demo-tag">데모</span>' : ''}</b>
-            <small>🤖 ${esc(lc.ai)} · 🙋 ${esc(s.user)}</small>
+            <b>${esc(s.title)} ${ss.demo ? '<span class="demo-tag">데모</span>' : ''}</b>
+            <small>${LANGS[lg].flag} ${esc(lc.ai)}</small>
           </div>
           <button class="btn small ghost" id="btn-end">끝내기</button>
         </div>
-        <div class="missions">
-          ${s.missions.map((m, i) => `<span class="mission ${ss.missionsDone.includes(i + 1) ? 'done' : ''}">${ss.missionsDone.includes(i + 1) ? '✅' : '⬜'} ${esc(m)}</span>`).join('')}
-        </div>
+        <button class="mission-line" id="btn-mission" title="미션 자세히 보기">
+          <span>🎯 ${ss.missionsDone.length}/${s.missions.length}</span>
+          <span class="dots">${s.missions.map((m, i) => `<i class="${ss.missionsDone.includes(i + 1) ? 'on' : ''}"></i>`).join('')}</span>
+          <span class="next">${nextMission ? `다음: ${esc(nextMission)}` : '미션 모두 완료! 🎉'}</span>
+          <span>›</span>
+        </button>
         <div class="messages" id="messages">
           ${ss.messages.map((m, i) => renderMessage(m, i, settings)).join('')}
-          ${state.busy ? `<div class="msg ai"><div class="bubble typing"><i></i><i></i><i></i></div></div>` : ''}
-          ${allDone && !state.busy ? `<div class="all-done"><span style="font-size:28px">🎉</span><div class="grow">미션을 모두 완료했어요!<br><small style="color:#e8ffef">대화를 마치고 결과를 볼까요? 더 이야기해도 좋아요.</small></div><button class="btn small ghost" id="btn-finish">결과 보기</button></div>` : ''}
+          ${state.busy ? `<div class="msg ai"><span class="avatar">${s.emoji}</span><div class="bubble typing"><i></i><i></i><i></i></div></div>` : ''}
+          ${allDone && !state.busy ? `<div class="all-done"><span class="done-mascot">${mascot('cheer', 48)}</span><div class="grow">미션을 모두 완료했어요!<br><small style="color:#e8ffef">더 이야기해도 좋아요.</small></div><button class="btn small ghost" id="btn-finish">결과 보기</button></div>` : ''}
         </div>
         <div class="chat-tools">
-          <button class="tool ${state.suggestions ? 'active' : ''}" id="btn-suggest">💡 뭐라고 말할까?</button>
-          <button class="tool ${state.phrasesOpen ? 'active' : ''}" id="btn-phrases">📖 유용한 표현</button>
-          <button class="tool" id="btn-mission">🎯 미션 보기</button>
-          <button class="tool" id="btn-replay">🔊 다시 듣기</button>
+          <button class="tool ${state.suggestions ? 'active' : ''}" id="btn-suggest">💡 힌트</button>
+          <button class="tool ${state.phrasesOpen ? 'active' : ''}" id="btn-phrases">📖 표현</button>
         </div>
         ${state.suggestions ? `
           <div class="panel">
@@ -488,7 +513,6 @@
     $('#btn-suggest').addEventListener('click', toggleSuggestions);
     $('#btn-phrases').addEventListener('click', () => { state.phrasesOpen = !state.phrasesOpen; state.suggestions = null; render(); });
     $('#btn-mission').addEventListener('click', () => openScenarioInfo());
-    $('#btn-replay').addEventListener('click', () => { const last = [...ss.messages].reverse().find(m => m.role === 'ai'); if (last) Speech.speak(last.text, lg); });
     $$('[data-fill]').forEach(b => b.addEventListener('click', e => {
       if (e.target.closest('[data-say]')) return;
       state.draft = b.dataset.fill; input.value = state.draft; input.focus();
@@ -505,11 +529,14 @@
     const showKo = m.koOpen || (settings.showKoHint && m.ko);
     return `
       <div class="msg ai">
-        <div class="bubble">${esc(m.text)}</div>
-        ${showKo && m.ko ? `<div class="ko">🇰🇷 ${esc(m.ko)}</div>` : ''}
-        <div class="meta">
-          <button data-say="${esc(m.text)}">🔊 듣기</button>
-          <button data-ko="${i}">${m.koLoading ? '⏳' : (showKo && m.ko ? '🙈 뜻 숨기기' : '🇰🇷 뜻 보기')}</button>
+        <span class="avatar">${state.scenario ? state.scenario.emoji : '🤖'}</span>
+        <div class="col">
+          <div class="bubble">${esc(m.text)}</div>
+          ${showKo && m.ko ? `<div class="ko">🇰🇷 ${esc(m.ko)}</div>` : ''}
+          <div class="meta">
+            <button data-say="${esc(m.text)}" title="듣기" aria-label="듣기">🔊</button>
+            <button data-ko="${i}" title="뜻 보기" aria-label="뜻 보기">${m.koLoading ? '⏳' : (showKo && m.ko ? '🙈' : '🇰🇷')}</button>
+          </div>
         </div>
       </div>
       ${m.tip ? `<div class="tip"><b>💡 선생님 팁</b>${esc(m.tip)}</div>` : ''}`;
@@ -626,13 +653,13 @@
   function renderReport() {
     const s = state.scenario, ss = state.session, r = ss.report, lg = sessLang(ss);
     if (state.reportLoading || !r) {
-      main.innerHTML = `<div class="report-hero"><div class="big">📝</div><h2>선생님이 대화를 살펴보고 있어요...</h2><p style="margin-top:8px"><small>잠깐만 기다려 주세요</small></p><div class="typing" style="justify-content:center;margin-top:10px"><i></i><i></i><i></i></div></div>`;
+      main.innerHTML = `<div class="report-hero"><div class="big">${mascot('think', 110)}</div><h2>선생님이 대화를 살펴보고 있어요...</h2><p style="margin-top:8px"><small>잠깐만 기다려 주세요</small></p><div class="typing" style="justify-content:center;margin-top:10px"><i></i><i></i><i></i></div></div>`;
       return;
     }
     const stars = [1, 2, 3, 4, 5].map(n => `<span class="${n <= r.stars ? '' : 'off'}">⭐</span>`).join('');
     main.innerHTML = `
       <div class="report-hero">
-        <div class="big">${r.stars >= 4 ? '🏆' : r.stars >= 3 ? '👏' : '💪'}</div>
+        <div class="big">${mascot(r.stars >= 3 ? 'cheer' : 'happy', 110)}</div>
         <h2>${esc(s.title)} 완료!</h2>
         <div class="stars">${stars}</div>
         <div class="info-row" style="justify-content:center">
@@ -772,15 +799,12 @@
       </div>
 
       <div class="stat-grid">
-        <div class="stat-tile"><b>${list.length}</b><small>💬 대화 횟수</small></div>
-        <div class="stat-tile"><b>${sentences}</b><small>✏️ 내가 말한 문장</small></div>
-        <div class="stat-tile"><b>${minutes}분</b><small>⏱ 공부한 시간</small></div>
-        <div class="stat-tile"><b>${uniq}</b><small>🎭 완료한 상황 (종류)</small></div>
-        <div class="stat-tile"><b>${missions}</b><small>🎯 완료한 미션</small></div>
-        <div class="stat-tile"><b>${stars}</b><small>⭐ 받은 별</small></div>
-        <div class="stat-tile"><b>${games.length}</b><small>🎮 게임 횟수</small></div>
-        <div class="stat-tile"><b>${gameXp}</b><small>✨ 게임 XP</small></div>
+        <div class="stat-tile"><b>💬 ${list.length}</b><small>대화 횟수</small></div>
+        <div class="stat-tile"><b>✏️ ${sentences}</b><small>말한 문장</small></div>
+        <div class="stat-tile"><b>⏱ ${minutes}분</b><small>공부한 시간</small></div>
+        <div class="stat-tile"><b>✨ ${gameXp}</b><small>게임 XP (${games.length}회)</small></div>
       </div>
+      <p style="margin:10px 2px 0"><small>🎭 완료한 상황 ${uniq}종 · 🎯 미션 ${missions}개 · ⭐ 별 ${stars}개</small></p>
 
       <div class="card" style="margin-top:12px">
         <b style="font-size:14px">${period === 'day' ? '시간대별' : period === 'week' ? '요일별' : period === 'month' ? '날짜별' : '월별'} 말한 문장 수</b>
@@ -896,6 +920,13 @@
         <p style="margin-top:10px"><small>상태: ${API.hasKey() ? '🟢 키 설정됨' : '🟡 데모 모드 (키 없음)'}</small></p>
       </div>
 
+      ${!isStandalone() ? `
+      <h3 class="section-title" style="font-size:16px">📱 휴대폰 앱으로 설치</h3>
+      <div class="card">
+        <p><small>${state.installPrompt ? '아래 버튼을 누르면 홈 화면에 아이콘이 생기고 전체 화면으로 열려요.' : isIOS() ? 'Safari 아래 <b>공유(⬆)</b> → <b>홈 화면에 추가</b>를 누르세요.' : 'Chrome 메뉴(⋮) → <b>앱 설치</b> 또는 <b>홈 화면에 추가</b>를 누르세요.'}</small></p>
+        ${state.installPrompt ? `<button class="btn small" id="btn-install" style="margin-top:10px">📲 설치하기</button>` : ''}
+      </div>` : ''}
+
       <h3 class="section-title" style="font-size:16px">🔊 대화 옵션</h3>
       <div class="card">
         <div class="switch"><div><b>AI 대사 자동으로 읽어 주기</b><br><small>원어민 발음을 들으며 연습해요</small></div><button class="toggle ${st.autoSpeak ? 'on' : ''}" data-toggle="autoSpeak" aria-label="자동 읽기"></button></div>
@@ -933,6 +964,13 @@
     }));
     $$('[data-lang]').forEach(b => b.addEventListener('click', () => { Store.saveSettings({ lang: b.dataset.lang }); render(); }));
     $$('[data-stage]').forEach(b => b.addEventListener('click', () => { Store.saveSettings({ stage: b.dataset.stage }); state.cat = 'all'; render(); }));
+    const inst = $('#btn-install');
+    if (inst) inst.addEventListener('click', async () => {
+      const p = state.installPrompt; if (!p) return;
+      p.prompt();
+      const { outcome } = await p.userChoice.catch(() => ({ outcome: 'dismissed' }));
+      if (outcome === 'accepted') { state.installPrompt = null; toast('설치했어요! 홈 화면에서 열어 보세요 📱', 'ok'); render(); }
+    });
     $('#s-export').addEventListener('click', () => {
       const blob = new Blob([Store.exportJSON()], { type: 'application/json' });
       const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
@@ -960,6 +998,7 @@
       getLang: curLang, getStage: curStage, getStreak: calcStreak,
       speak: (t, l, rate) => Speech.speak(t, l, rate),
       toggles: () => langToggle(true) + stageToggle(true),
+      learnChip: () => learnChip(true), mascot,
       bindCommon, rerender: render,
     });
     $$('.bottom-nav button').forEach(b => b.addEventListener('click', () => {
@@ -975,8 +1014,8 @@
     });
     document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
     // PWA 설치 프롬프트 (Android Chrome / 데스크톱 Chrome·Edge)
-    window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); state.installPrompt = e; if (state.screen === 'home') render(); });
-    window.addEventListener('appinstalled', () => { state.installPrompt = null; if (state.screen === 'home') render(); });
+    window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); state.installPrompt = e; if (state.screen === 'settings') render(); });
+    window.addEventListener('appinstalled', () => { state.installPrompt = null; if (state.screen === 'settings') render(); });
     render();
   }
 

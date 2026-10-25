@@ -100,45 +100,33 @@ const Games = (() => {
     const sm = summary();
     const L = LANGS[lang()], S = STAGES[stage()];
     const best = id => { const r = sm.games.filter(g => g.id === id && g.lang === lang() && g.stage === stage()); return r.length ? Math.max(...r.map(g => g.xp)) : null; };
-    const recent = sm.games.slice(-5).reverse();
     const bd = badges(sm);
+    const SHORT = { flash: '뒤집어서 외우기', quiz: '뜻 맞히기', blank: '빈칸 고르기', builder: '순서대로 조립', match: '빠르게 연결하기', dictation: '듣고 그대로 쓰기', grammar: '문법 고르기' };
+    const goalPct = Math.min(100, Math.round(sm.todayXp / sm.goal * 100));
     ctx.main.innerHTML = `
-      <h2 class="section-title">🎮 게임으로 익히기</h2>
-      <div class="card xp-card">
-        <div class="xp-row">
-          <div class="xp-level"><span>Lv.</span><b>${sm.level}</b></div>
-          <div class="grow">
-            <div class="xp-top"><b>총 ${sm.xp} XP</b><small>다음 레벨까지 ${100 - sm.inLevel} XP</small></div>
-            <div class="xbar"><i style="width:${sm.inLevel}%"></i></div>
-          </div>
-        </div>
-        <div class="xp-row" style="margin-top:10px">
-          <div class="xp-goal">${sm.todayXp >= sm.goal ? '🎉' : '🎯'}</div>
-          <div class="grow">
-            <div class="xp-top"><b>오늘의 목표</b><small>${Math.min(sm.todayXp, sm.goal)} / ${sm.goal} XP${sm.todayXp >= sm.goal ? ' · 달성!' : ''}</small></div>
-            <div class="xbar goal"><i style="width:${Math.min(100, Math.round(sm.todayXp / sm.goal * 100))}%"></i></div>
-          </div>
+      <div class="card xp-card xp-simple">
+        <div class="xp-mascot">${ctx.mascot(sm.todayXp >= sm.goal ? 'cheer' : 'happy', 64)}</div>
+        <div class="grow" style="min-width:0">
+          <div class="xp-top"><b>Lv.${sm.level} · ${sm.xp} XP</b><small>오늘 ${Math.min(sm.todayXp, sm.goal)}/${sm.goal}${sm.todayXp >= sm.goal ? ' 🎉' : ''}</small></div>
+          <div class="xbar goal"><i style="width:${goalPct}%"></i></div>
+          <small style="color:rgba(255,255,255,.85)">${sm.todayXp >= sm.goal ? '오늘 목표 달성! 더 해도 좋아요' : `오늘 목표까지 ${sm.goal - sm.todayXp} XP`}</small>
         </div>
       </div>
 
-      <div class="toggles" style="margin:12px 0 4px">${ctx.toggles()}</div>
-      <p style="margin:0 0 10px"><small>지금 재료: ${L.flag} ${L.name} · ${S.emoji} ${S.name} 단계의 표현 ${phrasePool().length}개, 단어 ${vocabPool().length}개, 문법 ${grammarPool().length}문제</small></p>
+      <div style="margin:12px 0 10px; display:flex; align-items:center; gap:10px; flex-wrap:wrap">${ctx.learnChip()}<small>${L.flag} ${L.name} · ${S.emoji} ${S.name} 자료로 놀아요</small></div>
 
       <div class="game-grid">
         ${GAMES.map(g => { const b = best(g.id); return `
-          <button class="game-card" data-game="${g.id}">
+          <button class="game-card simple" data-game="${g.id}">
             <span class="emoji">${g.emoji}</span>
             <b>${g.name}</b>
-            <small>${g.desc}</small>
-            <span class="g-meta"><span class="pill-mini">${g.skill}</span>${b !== null ? `<span class="pill-mini best">최고 ${b} XP</span>` : `<span class="pill-mini">${g.xp}</span>`}</span>
+            <small>${SHORT[g.id] || g.desc}</small>
+            ${b !== null ? `<span class="pill-mini best">최고 ${b} XP</span>` : ''}
           </button>`; }).join('')}
       </div>
 
       <h3 class="section-title" style="font-size:16px">🏅 배지 <small>${bd.filter(b => b.ok).length}/${bd.length}</small></h3>
       <div class="badge-grid">${bd.map(b => `<div class="badge-item ${b.ok ? 'on' : ''}" title="${esc(b.tip || b.n)}"><span>${b.e}</span><small>${b.n}</small></div>`).join('')}</div>
-
-      ${recent.length ? `<h3 class="section-title" style="font-size:16px">최근 기록</h3>
-      <div class="list">${recent.map(r => { const g = GAME_MAP[r.id] || { emoji: '🎮', name: r.id }; const d = new Date(r.at); return `<div class="list-item" style="align-items:center"><span style="font-size:22px">${g.emoji}</span><div style="flex:1"><b>${g.name}</b><br><small>${LANGS[r.lang] ? LANGS[r.lang].flag : ''} ${STAGES[r.stage] ? STAGES[r.stage].name : ''} · ${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')} · ${r.score}/${r.total}</small></div><b style="color:var(--primary)">+${r.xp} XP</b></div>`; }).join('')}</div>` : ''}
     `;
     ctx.bindCommon();
     $$('[data-game]').forEach(b => b.addEventListener('click', () => start(b.dataset.game)));
@@ -169,8 +157,8 @@ const Games = (() => {
     const msg = ratio >= 0.9 ? '완벽해요!' : ratio >= 0.6 ? '잘했어요!' : '조금만 더 연습해 봐요!';
     ctx.main.innerHTML = `
       <div class="report-hero">
-        <div class="big">${face}</div>
-        <h2>${g.emoji} ${g.name} ${msg}</h2>
+        <div class="big">${ctx.mascot(ratio >= 0.6 ? 'cheer' : 'happy', 100)}</div>
+        <h2>${g.emoji} ${g.name} ${msg} ${face}</h2>
         <div class="info-row" style="justify-content:center">
           <span class="pill">점수 ${r.score} / ${r.total}</span>
           <span class="pill" style="color:var(--primary)">+${r.xp} XP</span>
