@@ -78,6 +78,15 @@ body.in-chat .bottom-nav { display: none; }
 .btn.danger { background: var(--danger); }
 .btn.soft { background: #FFF1E3; color: #B65A14; box-shadow: none; }
 
+/* ---------- 언어 전환 ---------- */
+.lang-toggle { display: inline-flex; background: rgba(255,255,255,.25); border-radius: 999px; padding: 4px; gap: 2px; }
+.lang-toggle button { padding: 7px 14px; border-radius: 999px; font-weight: 800; font-size: 14px; color: #fff; }
+.lang-toggle button.active { background: #fff; color: #D9631E; box-shadow: 0 2px 6px rgba(0,0,0,.12); }
+.lang-toggle.dark { background: var(--card); box-shadow: var(--shadow); }
+.lang-toggle.dark button { color: var(--muted); }
+.lang-toggle.dark button.active { background: var(--primary); color: #fff; }
+.lang-flag { font-size: 13px; background: var(--card); border-radius: 999px; padding: 2px 8px; font-weight: 800; box-shadow: var(--shadow); }
+
 /* ---------- 홈 ---------- */
 .hero {
   background: linear-gradient(135deg, #FFB84D 0%, #FF8A3D 100%);

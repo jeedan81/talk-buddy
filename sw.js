@@ -2,13 +2,14 @@
    - 앱 파일(HTML/CSS/JS/아이콘)을 캐시해서 오프라인에서도 화면이 뜨게 함
    - OpenAI API 요청은 가로채지 않음 (항상 네트워크)
    - 같은 출처 파일은 "캐시 먼저 보여주고 뒤에서 갱신" (stale-while-revalidate) */
-const CACHE = 'talkbuddy-v1';
+const CACHE = 'talkbuddy-v2';
 const SHELL = [
   './',
   './index.html',
   './manifest.webmanifest',
   './css/style.css',
   './js/scenarios.js',
+  './js/scenarios_ja.js',
   './js/storage.js',
   './js/api.js',
   './js/app.js',

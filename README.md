@@ -1,7 +1,11 @@
-# 🗣️ Talk Buddy – 초등 5학년 상황별 영어 회화 파트너
+# 🗣️ Talk Buddy – 초등 5학년 상황별 영어·일본어 회화 파트너
 
-"카페에서 주문하기", "길 물어보기"처럼 일상 속 상황을 골라 AI와 영어로 롤플레이하는 웹앱입니다.
+"카페에서 주문하기", "길 물어보기"처럼 일상 속 상황을 골라 AI와 **영어 또는 일본어**로 롤플레이하는 웹앱입니다.
 설치 없이 브라우저에서 바로 실행되고, OpenAI API로 대화합니다.
+
+- 홈 화면·상황 선택 창·설정에서 🇺🇸 영어 / 🇯🇵 일본어를 언제든 바꿀 수 있어요. 84개 상황 모두 두 언어를 지원합니다.
+- 일본어는 초등학생이 읽을 수 있도록 **한자 없이 히라가나·가타카나 + 띄어쓰기**로 대화하고, 음성 읽기·마이크도 일본어로 전환됩니다.
+- 기록은 언어별로 구분해서 볼 수 있어요.
 
 ## 실행 방법
 
@@ -80,7 +84,8 @@ manifest.webmanifest PWA 설치 정보 (앱 이름, 아이콘, 색)
 sw.js               서비스 워커 (앱 파일 캐시, 오프라인 화면)
 icons/              앱 아이콘 (192/512/maskable/apple-touch)
 css/style.css       스타일
-js/scenarios.js     카테고리/상황 데이터 (여기에 상황을 추가하면 바로 반영)
+js/scenarios.js     카테고리/상황 데이터 (여기에 상황을 추가하면 바로 반영) + 언어 목록/localize()
+js/scenarios_ja.js  일본어 버전 데이터 (상황 id별 제목·역할·표현·첫 대사)
 js/storage.js       localStorage 저장(설정, 대화 기록)
 js/api.js           OpenAI Chat Completions 호출, 프롬프트, 데모 모드
 js/app.js           화면 렌더링과 앱 로직
@@ -97,6 +102,14 @@ js/app.js           화면 렌더링과 앱 로직
   missions: ['도넛 종류 묻기', '두 개 고르기', '가격 묻기'],
   phrases: [['What kinds of donuts do you have?', '어떤 도넛이 있어요?'], ['Two chocolate donuts, please.', '초콜릿 도넛 두 개 주세요.']],
   opener: "Hi! Welcome to Donut House. What would you like?" }
+```
+
+일본어 버전은 `js/scenarios_ja.js`에 같은 id로 추가합니다. (없으면 그 상황은 영어로만 나와요.)
+
+```js
+'my-scene': { title: 'ドーナツやさんで', ai: 'エミ（てんいん）',
+  phrases: ['どんな ドーナツが ありますか？', 'チョコドーナツを ふたつ ください。'],
+  opener: 'いらっしゃいませ！ドーナツハウスへ ようこそ。なにに しますか？' },
 ```
 
 ## 참고

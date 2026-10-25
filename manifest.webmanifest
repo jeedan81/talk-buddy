@@ -1,7 +1,7 @@
 {
-  "name": "Talk Buddy – 상황별 영어 회화 친구",
+  "name": "Talk Buddy – 상황별 영어·일본어 회화 친구",
   "short_name": "Talk Buddy",
-  "description": "초등 5학년을 위한 상황별 영어 회화 롤플레이 앱",
+  "description": "초등 5학년을 위한 상황별 영어·일본어 회화 롤플레이 앱",
   "lang": "ko",
   "start_url": "./index.html",
   "scope": "./",

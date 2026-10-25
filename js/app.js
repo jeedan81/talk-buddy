@@ -55,33 +55,35 @@
 
   /* ---------- 음성 (TTS / STT) ---------- */
   const Speech = {
-    voice: null,
+    voices: {},
     init() {
       if (!('speechSynthesis' in window)) return;
       const pick = () => {
-        const voices = speechSynthesis.getVoices();
-        const en = voices.filter(v => /^en(-|_)?(US|GB|AU)?/i.test(v.lang));
-        this.voice = en.find(v => /female|samantha|zira|aria|jenny|google us/i.test(v.name)) || en.find(v => /en-US/i.test(v.lang)) || en[0] || null;
+        const all = speechSynthesis.getVoices();
+        const en = all.filter(v => /^en(-|_)?(US|GB|AU)?/i.test(v.lang));
+        this.voices.en = en.find(v => /female|samantha|zira|aria|jenny|google us/i.test(v.name)) || en.find(v => /en-US/i.test(v.lang)) || en[0] || null;
+        const ja = all.filter(v => /^ja/i.test(v.lang));
+        this.voices.ja = ja.find(v => /nanami|haruka|kyoko|o-ren|google/i.test(v.name)) || ja[0] || null;
       };
       pick(); speechSynthesis.onvoiceschanged = pick;
     },
-    speak(text) {
+    speak(text, lg = 'en') {
       if (!('speechSynthesis' in window) || !text) return;
       speechSynthesis.cancel();
       const u = new SpeechSynthesisUtterance(text);
-      u.lang = 'en-US'; u.rate = 0.88; u.pitch = 1.05;
-      if (this.voice) u.voice = this.voice;
+      u.lang = (LANGS[lg] || LANGS.en).tts; u.rate = lg === 'ja' ? 0.85 : 0.88; u.pitch = 1.05;
+      if (this.voices[lg]) u.voice = this.voices[lg];
       speechSynthesis.speak(u);
     },
     stop() { if ('speechSynthesis' in window) speechSynthesis.cancel(); },
     canListen() { return !!(window.SpeechRecognition || window.webkitSpeechRecognition); },
     rec: null,
-    listen(onResult, onEnd) {
+    listen(onResult, onEnd, lg = 'en') {
       const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
       if (!SR) return false;
       this.stop();
       const rec = new SR();
-      rec.lang = 'en-US'; rec.interimResults = true; rec.maxAlternatives = 1;
+      rec.lang = (LANGS[lg] || LANGS.en).tts; rec.interimResults = true; rec.maxAlternatives = 1;
       let finalText = '';
       rec.onresult = e => {
         let interim = '';
@@ -105,8 +107,15 @@
     return Math.max(0, (last - s.startedAt) / 1000);
   }
   function userCount(s) { return s.messages.filter(m => m.role === 'user').length; }
-  function completedScenarioIds() {
-    return new Set(Store.getHistory().filter(s => s.endedAt).map(s => s.scenarioId));
+  const curLang = () => { const l = Store.getSettings().lang; return LANGS[l] ? l : 'en'; };
+  const sessLang = s => (s && LANGS[s.lang]) ? s.lang : 'en';
+  const langTag = lg => `<span class="lang-flag">${LANGS[lg].flag} ${LANGS[lg].name}</span>`;
+  function langToggle(dark = false) {
+    const cur = curLang();
+    return `<div class="lang-toggle ${dark ? 'dark' : ''}" role="group" aria-label="배우는 언어">${Object.values(LANGS).map(l => `<button type="button" class="${cur === l.code ? 'active' : ''}" data-lang="${l.code}">${l.flag} ${l.name}</button>`).join('')}</div>`;
+  }
+  function completedScenarioIds(lg = curLang()) {
+    return new Set(Store.getHistory().filter(s => s.endedAt && sessLang(s) === lg).map(s => s.scenarioId));
   }
   function calcStreak() {
     const days = new Set(Store.getHistory().filter(s => userCount(s) > 0).map(s => startOfDay(s.startedAt).getTime()));
@@ -153,7 +162,8 @@
     const minutes = Math.round(today.reduce((n, s) => n + sessionDuration(s), 0) / 60);
     const hello = settings.name ? `${esc(settings.name)}, 안녕!` : '안녕, 친구!';
     const hour = new Date().getHours();
-    const sub = hour < 12 ? '오늘은 어떤 상황에서 영어로 말해 볼까?' : hour < 18 ? '오늘 오후도 영어로 신나게 이야기해 보자!' : '하루를 마무리하며 영어 한 마디 어때?';
+    const ln = LANGS[curLang()].name;
+    const sub = hour < 12 ? `오늘은 어떤 상황에서 ${ln}로 말해 볼까?` : hour < 18 ? `오늘 오후도 ${ln}로 신나게 이야기해 보자!` : `하루를 마무리하며 ${ln} 한 마디 어때?`;
 
     const currentId = Store.getCurrentId();
     const current = currentId ? Store.getSession(currentId) : null;
@@ -168,6 +178,7 @@
       <section class="hero">
         <h1>${hello} 👋</h1>
         <p>${sub}</p>
+        <div style="margin-top:12px">${langToggle()}</div>
         <div class="stats">
           <div class="stat"><b>${today.length}</b><span>오늘 대화</span></div>
           <div class="stat"><b>${sentences}</b><span>말한 문장</span></div>
@@ -237,17 +248,24 @@
   function scenarioCard(s) {
     const c = CATEGORY_MAP[s.cat];
     const done = completedScenarioIds().has(s.id);
+    const lc = localize(s, curLang());
     return `
       <button class="scn-card" style="--c:${c.color}" data-scn="${s.id}">
         ${done ? '<span class="done-badge">완료 ✓</span>' : ''}
         <span class="emoji">${s.emoji}</span>
         <b>${esc(s.title)}</b>
-        <small>${esc(s.en)}</small>
+        <small>${esc(lc.subtitle)}</small>
         <span class="level" title="난이도 ${s.level}">${[1, 2, 3].map(n => `<i class="${n <= s.level ? 'on' : ''}"></i>`).join('')}</span>
       </button>`;
   }
 
   function bindCommon() {
+    $$('[data-lang]').forEach(b => b.addEventListener('click', () => {
+      if (b.dataset.lang === curLang()) return;
+      Store.saveSettings({ lang: b.dataset.lang });
+      toast(`${LANGS[b.dataset.lang].flag} ${LANGS[b.dataset.lang].name}로 배워요!`, 'ok');
+      render();
+    }));
     $$('[data-go]').forEach(b => b.addEventListener('click', () => navigate(b.dataset.go)));
     $$('[data-cat]').forEach(b => b.addEventListener('click', () => navigate('scenarios', { cat: b.dataset.cat, search: '' })));
     $$('[data-scn]').forEach(b => b.addEventListener('click', () => openScenarioModal(b.dataset.scn)));
@@ -258,14 +276,16 @@
   ======================================================== */
   function renderScenarios() {
     const q = state.search.trim().toLowerCase();
+    const hay = s => (s.title + s.en + localize(s, curLang()).subtitle + s.situation + s.missions.join(' ')).toLowerCase();
     let list = SCENARIOS.filter(s => state.cat === 'all' || s.cat === state.cat);
     if (state.level) list = list.filter(s => s.level === state.level);
-    if (q) list = list.filter(s => (s.title + s.en + s.situation + s.missions.join(' ')).toLowerCase().includes(q));
+    if (q) list = list.filter(s => hay(s).includes(q));
     const cat = state.cat === 'all' ? null : CATEGORY_MAP[state.cat];
 
     main.innerHTML = `
       <h2 class="section-title">${cat ? `${cat.emoji} ${esc(cat.name)}` : '🎭 모든 상황'} <small>${list.length}개</small></h2>
       ${cat ? `<p style="margin:-6px 0 10px"><small>${esc(cat.desc)}</small></p>` : ''}
+      <div style="margin:0 0 10px">${langToggle(true)}</div>
       <div class="chips">
         <button class="chip ${state.cat === 'all' ? 'active' : ''}" data-chip="all">전체</button>
         ${CATEGORIES.map(c => `<button class="chip ${state.cat === c.id ? 'active' : ''}" data-chip="${c.id}">${c.emoji} ${esc(c.name)}</button>`).join('')}
@@ -290,7 +310,7 @@
       const q2 = state.search.trim().toLowerCase();
       let l2 = SCENARIOS.filter(s => state.cat === 'all' || s.cat === state.cat);
       if (state.level) l2 = l2.filter(s => s.level === state.level);
-      if (q2) l2 = l2.filter(s => (s.title + s.en + s.situation + s.missions.join(' ')).toLowerCase().includes(q2));
+      if (q2) l2 = l2.filter(s => hay(s).includes(q2));
       const html = l2.length ? `<div class="scn-grid">${l2.map(scenarioCard).join('')}</div>` : `<div class="empty">🔎 조건에 맞는 상황이 없어요.</div>`;
       grid.outerHTML = html;
       $('.section-title small').textContent = `${l2.length}개`;
@@ -303,36 +323,42 @@
   /* ---------- 상황 상세 모달 ---------- */
   function openScenarioModal(id) {
     const s = SCENARIO_MAP[id]; const c = CATEGORY_MAP[s.cat];
-    const past = Store.getHistory().filter(h => h.scenarioId === id && h.endedAt);
+    const lg = curLang(); const lc = localize(s, lg);
+    const past = Store.getHistory().filter(h => h.scenarioId === id && h.endedAt && sessLang(h) === lg);
     const best = past.reduce((m, h) => Math.max(m, h.report && h.report.stars || 0), 0);
     openModal(`
       <div class="modal-head">
         <span class="emoji">${s.emoji}</span>
-        <div><h2>${esc(s.title)}</h2><small>${esc(s.en)}</small></div>
+        <div><h2>${esc(s.title)}</h2><small>${esc(lc.subtitle)}</small></div>
         <button class="modal-close" aria-label="닫기">✕</button>
       </div>
-      <div class="info-row">
+      <div class="info-row" style="align-items:center">
+        ${langToggle(true)}
         <span class="pill" style="border-left:5px solid ${c.color}">${c.emoji} ${esc(c.name)}</span>
         <span class="pill">난이도 ${'●'.repeat(s.level)}${'○'.repeat(3 - s.level)}</span>
         ${past.length ? `<span class="pill">🏅 ${past.length}번 완료 · 최고 ${'⭐'.repeat(best)}</span>` : ''}
       </div>
       <div class="card">
         <p>${esc(s.situation)}</p>
-        <p style="margin-top:8px"><small>🤖 AI 역할: <b>${esc(s.ai)}</b> &nbsp;|&nbsp; 🙋 내 역할: <b>${esc(s.user)}</b></small></p>
+        <p style="margin-top:8px"><small>🤖 AI 역할: <b>${esc(lc.ai)}</b> &nbsp;|&nbsp; 🙋 내 역할: <b>${esc(s.user)}</b></small></p>
       </div>
       <h3 class="section-title" style="font-size:16px">🎯 미션</h3>
       <div class="list">${s.missions.map((m, i) => `<div class="list-item"><span class="num">${i + 1}</span><span>${esc(m)}</span></div>`).join('')}</div>
-      <h3 class="section-title" style="font-size:16px">💬 유용한 표현</h3>
-      <div class="list">${s.phrases.map(([en, ko]) => `
+      <h3 class="section-title" style="font-size:16px">💬 유용한 표현 ${LANGS[lg].flag}</h3>
+      <div class="list">${lc.phrases.map(([en, ko]) => `
         <div class="list-item">
           <div class="phrase"><b>${esc(en)}</b><small>${esc(ko)}</small></div>
           <button class="speak-btn" data-say="${esc(en)}" aria-label="듣기">🔊</button>
         </div>`).join('')}</div>
       <div style="margin-top:18px">
-        <button class="btn full" id="btn-start">🚀 대화 시작하기</button>
+        <button class="btn full" id="btn-start">🚀 ${LANGS[lg].name}로 대화 시작하기</button>
       </div>
     `);
-    $$('[data-say]', modalRoot).forEach(b => b.addEventListener('click', () => Speech.speak(b.dataset.say)));
+    $$('[data-say]', modalRoot).forEach(b => b.addEventListener('click', () => Speech.speak(b.dataset.say, lg)));
+    $$('[data-lang]', modalRoot).forEach(b => b.addEventListener('click', () => {
+      if (b.dataset.lang === curLang()) return;
+      Store.saveSettings({ lang: b.dataset.lang }); render(); openScenarioModal(id);
+    }));
     $('#btn-start').addEventListener('click', () => { closeModal(); startScenario(id); });
   }
 
@@ -341,14 +367,15 @@
   ======================================================== */
   function startScenario(id) {
     const s = SCENARIO_MAP[id];
+    const lg = curLang(); const lc = localize(s, lg);
     const session = {
-      id: uid(), scenarioId: id, startedAt: Date.now(), endedAt: null,
-      messages: [{ role: 'ai', text: s.opener, at: Date.now() }],
+      id: uid(), scenarioId: id, lang: lg, startedAt: Date.now(), endedAt: null,
+      messages: [{ role: 'ai', text: lc.opener, at: Date.now() }],
       missionsDone: [], report: null, demo: !API.hasKey(),
     };
     Store.saveSession(session); Store.setCurrentId(session.id);
     navigate('chat', { scenario: s, session, phrasesOpen: false, suggestions: null, draft: '', busy: false });
-    if (Store.getSettings().autoSpeak) setTimeout(() => Speech.speak(s.opener), 300);
+    if (Store.getSettings().autoSpeak) setTimeout(() => Speech.speak(lc.opener, lg), 300);
   }
   function resumeSession(id) {
     const session = Store.getSession(id); if (!session) return;
@@ -358,7 +385,8 @@
   }
 
   function renderChat() {
-    const s = state.scenario, ss = state.session, c = CATEGORY_MAP[s.cat];
+    const s = state.scenario, ss = state.session;
+    const lg = sessLang(ss), lc = localize(s, lg);
     const allDone = ss.missionsDone.length >= s.missions.length;
     const settings = Store.getSettings();
 
@@ -367,8 +395,8 @@
         <div class="chat-head">
           <span class="emoji">${s.emoji}</span>
           <div class="title">
-            <b>${esc(s.title)} ${ss.demo ? '<span class="demo-tag">데모</span>' : ''}</b>
-            <small>🤖 ${esc(s.ai)} · 🙋 ${esc(s.user)}</small>
+            <b>${LANGS[lg].flag} ${esc(s.title)} ${ss.demo ? '<span class="demo-tag">데모</span>' : ''}</b>
+            <small>🤖 ${esc(lc.ai)} · 🙋 ${esc(s.user)}</small>
           </div>
           <button class="btn small ghost" id="btn-end">끝내기</button>
         </div>
@@ -398,7 +426,7 @@
         ${state.phrasesOpen ? `
           <div class="panel">
             <div class="panel-title">이 상황에서 쓰는 표현 (눌러서 넣기)</div>
-            ${s.phrases.map(([en, ko]) => `
+            ${lc.phrases.map(([en, ko]) => `
               <button class="sug" data-fill="${esc(en)}">
                 <div class="phrase"><b>${esc(en)}</b><small>${esc(ko)}</small></div>
                 <span class="speak-btn" data-say="${esc(en)}">🔊</span>
@@ -406,7 +434,7 @@
           </div>` : ''}
         <form class="composer" id="composer" autocomplete="off">
           <button type="button" class="round mic ${state.listening ? 'on' : ''}" id="btn-mic" aria-label="말하기" ${Speech.canListen() ? '' : 'hidden'}>🎤</button>
-          <input id="input" type="text" placeholder="${state.listening ? '듣고 있어요... 영어로 말해 보세요' : '영어로 말해 보세요 ✏️'}" value="${esc(state.draft)}" ${state.busy ? 'disabled' : ''} maxlength="300">
+          <input id="input" type="text" placeholder="${state.listening ? `듣고 있어요... ${LANGS[lg].name}로 말해 보세요` : LANGS[lg].say}" value="${esc(state.draft)}" ${state.busy ? 'disabled' : ''} maxlength="300">
           <button type="submit" class="round send" aria-label="보내기" ${state.busy ? 'disabled' : ''}>➤</button>
         </form>
       </section>
@@ -423,12 +451,12 @@
     $('#btn-suggest').addEventListener('click', toggleSuggestions);
     $('#btn-phrases').addEventListener('click', () => { state.phrasesOpen = !state.phrasesOpen; state.suggestions = null; render(); });
     $('#btn-mission').addEventListener('click', () => openScenarioInfo());
-    $('#btn-replay').addEventListener('click', () => { const last = [...ss.messages].reverse().find(m => m.role === 'ai'); if (last) Speech.speak(last.text); });
+    $('#btn-replay').addEventListener('click', () => { const last = [...ss.messages].reverse().find(m => m.role === 'ai'); if (last) Speech.speak(last.text, lg); });
     $$('[data-fill]').forEach(b => b.addEventListener('click', e => {
       if (e.target.closest('[data-say]')) return;
       state.draft = b.dataset.fill; input.value = state.draft; input.focus();
     }));
-    $$('[data-say]').forEach(b => b.addEventListener('click', e => { e.stopPropagation(); Speech.speak(b.dataset.say); }));
+    $$('[data-say]').forEach(b => b.addEventListener('click', e => { e.stopPropagation(); Speech.speak(b.dataset.say, lg); }));
     $$('[data-ko]').forEach(b => b.addEventListener('click', () => toggleKo(Number(b.dataset.ko))));
     const mic = $('#btn-mic'); if (mic) mic.addEventListener('click', toggleMic);
   }
@@ -469,7 +497,7 @@
       Store.saveSession(ss);
       state.busy = false;
       render();
-      if (Store.getSettings().autoSpeak) Speech.speak(r.text);
+      if (Store.getSettings().autoSpeak) Speech.speak(r.text, sessLang(ss));
       if (r.missions.length) toast(`🎯 미션 ${r.missions.join(', ')} 완료!`, 'ok');
     } catch (e) {
       state.busy = false;
@@ -487,7 +515,7 @@
     if (!m || m.role !== 'ai') return;
     if (m.ko) { m.koOpen = !m.koOpen; Store.saveSession(state.session); render(); return; }
     m.koLoading = true; render();
-    try { m.ko = await API.translate(m.text); m.koOpen = true; }
+    try { m.ko = await API.translate(m.text, sessLang(state.session)); m.koOpen = true; }
     catch (e) { toast(e.message === 'NO_KEY' ? '설정에서 API 키를 입력해 주세요.' : e.message, 'error'); }
     m.koLoading = false; Store.saveSession(state.session); render();
   }
@@ -508,15 +536,15 @@
     const ok = Speech.listen((text, isFinal) => {
       state.draft = text; const input = $('#input'); if (input) input.value = text;
       if (isFinal && text) { /* 사용자가 확인 후 보내도록 입력창에만 넣음 */ }
-    }, () => { state.listening = false; render(); });
+    }, () => { state.listening = false; render(); }, sessLang(state.session));
     if (ok) { state.listening = true; render(); } else toast('이 브라우저는 음성 인식을 지원하지 않아요. (Chrome/Edge 추천)', 'error');
   }
 
   function openScenarioInfo() {
-    const s = state.scenario, ss = state.session;
+    const s = state.scenario, ss = state.session, lc = localize(s, sessLang(ss));
     openModal(`
-      <div class="modal-head"><span class="emoji">${s.emoji}</span><div><h2>${esc(s.title)}</h2><small>${esc(s.en)}</small></div><button class="modal-close">✕</button></div>
-      <div class="card"><p>${esc(s.situation)}</p><p style="margin-top:8px"><small>🤖 ${esc(s.ai)} &nbsp;|&nbsp; 🙋 ${esc(s.user)}</small></p></div>
+      <div class="modal-head"><span class="emoji">${s.emoji}</span><div><h2>${esc(s.title)}</h2><small>${esc(lc.subtitle)}</small></div><button class="modal-close">✕</button></div>
+      <div class="card"><p>${esc(s.situation)}</p><p style="margin-top:8px"><small>🤖 ${esc(lc.ai)} &nbsp;|&nbsp; 🙋 ${esc(s.user)}</small></p></div>
       <h3 class="section-title" style="font-size:16px">🎯 미션</h3>
       <div class="list">${s.missions.map((m, i) => `<div class="list-item"><span class="num" style="${ss.missionsDone.includes(i + 1) ? 'background:var(--ok)' : ''}">${ss.missionsDone.includes(i + 1) ? '✓' : i + 1}</span><span>${esc(m)}</span></div>`).join('')}</div>
       <p style="margin-top:14px"><small>💡 막히면 "뭐라고 말할까?" 버튼을 눌러 보세요. 한국어로 써도 AI가 영어로 어떻게 말하는지 알려 줘요.</small></p>
@@ -559,7 +587,7 @@
      결과 리포트
   ======================================================== */
   function renderReport() {
-    const s = state.scenario, ss = state.session, r = ss.report;
+    const s = state.scenario, ss = state.session, r = ss.report, lg = sessLang(ss);
     if (state.reportLoading || !r) {
       main.innerHTML = `<div class="report-hero"><div class="big">📝</div><h2>선생님이 대화를 살펴보고 있어요...</h2><p style="margin-top:8px"><small>잠깐만 기다려 주세요</small></p><div class="typing" style="justify-content:center;margin-top:10px"><i></i><i></i><i></i></div></div>`;
       return;
@@ -571,6 +599,7 @@
         <h2>${esc(s.title)} 완료!</h2>
         <div class="stars">${stars}</div>
         <div class="info-row" style="justify-content:center">
+          ${langTag(lg)}
           <span class="pill">🎯 미션 ${ss.missionsDone.length}/${s.missions.length}</span>
           <span class="pill">💬 ${userCount(ss)}문장</span>
           <span class="pill">⏱ ${fmtDur(sessionDuration(ss))}</span>
@@ -600,8 +629,8 @@
         <button class="btn ghost" id="r-history">📊 기록 보기</button>
       </div>
     `;
-    $$('[data-say]').forEach(b => b.addEventListener('click', () => Speech.speak(b.dataset.say)));
-    $('#r-again').addEventListener('click', () => startScenario(s.id));
+    $$('[data-say]').forEach(b => b.addEventListener('click', () => Speech.speak(b.dataset.say, lg)));
+    $('#r-again').addEventListener('click', () => { Store.saveSettings({ lang: lg }); startScenario(s.id); });
     $('#r-other').addEventListener('click', () => navigate('scenarios'));
     $('#r-history').addEventListener('click', () => navigate('history'));
   }
@@ -665,8 +694,9 @@
 
   function renderHistory() {
     const { period, offset } = state.hist;
+    const hl = state.hist.lang || 'all';
     const range = periodRange(period, offset);
-    const all = Store.getHistory().filter(s => userCount(s) > 0).sort((a, b) => b.startedAt - a.startedAt);
+    const all = Store.getHistory().filter(s => userCount(s) > 0 && (hl === 'all' || sessLang(s) === hl)).sort((a, b) => b.startedAt - a.startedAt);
     const list = all.filter(s => s.startedAt >= +range.start && s.startedAt < +range.end);
 
     const sentences = list.reduce((n, s) => n + userCount(s), 0);
@@ -683,6 +713,9 @@
 
     main.innerHTML = `
       <h2 class="section-title">📊 나의 대화 기록</h2>
+      <div class="chips" style="padding-top:0">
+        ${[['all', '🌐 전체 언어'], ['en', '🇺🇸 영어'], ['ja', '🇯🇵 일본어']].map(([k, n]) => `<button class="chip ${hl === k ? 'active' : ''}" data-hlang="${k}">${n}</button>`).join('')}
+      </div>
       <div class="seg">
         ${[['day', '하루'], ['week', '일주일'], ['month', '한 달'], ['all', '전체']].map(([k, n]) => `<button class="${period === k ? 'active' : ''}" data-period="${k}">${n}</button>`).join('')}
       </div>
@@ -715,7 +748,8 @@
       <h2 class="section-title">대화 목록 <small>${list.length}개</small></h2>
       ${list.length ? `<div class="list">${list.map(histItem).join('')}</div>` : `<div class="empty">아직 이 기간에는 대화가 없어요.<br>새로운 상황을 골라 시작해 보세요! 🎭<br><br><button class="btn" data-go="scenarios">상황 고르기</button></div>`}
     `;
-    $$('[data-period]').forEach(b => b.addEventListener('click', () => { state.hist = { period: b.dataset.period, offset: 0 }; render(); }));
+    $$('[data-period]').forEach(b => b.addEventListener('click', () => { state.hist = { period: b.dataset.period, offset: 0, lang: hl }; render(); }));
+    $$('[data-hlang]').forEach(b => b.addEventListener('click', () => { state.hist.lang = b.dataset.hlang; render(); }));
     $('#h-prev').addEventListener('click', () => { state.hist.offset--; render(); });
     $('#h-next').addEventListener('click', () => { state.hist.offset++; render(); });
     $$('[data-hist]').forEach(b => b.addEventListener('click', () => openHistoryModal(b.dataset.hist)));
@@ -729,7 +763,7 @@
       <button class="card hist-item" data-hist="${s.id}" style="padding:12px 14px">
         <span class="emoji">${sc.emoji}</span>
         <div class="grow">
-          <b>${esc(sc.title)}</b>
+          <b>${LANGS[sessLang(s)].flag} ${esc(sc.title)}</b>
           <small>${fmtDate(s.startedAt)} ${fmtTime(s.startedAt)} · ${userCount(s)}문장 · ${fmtDur(sessionDuration(s))} · 미션 ${(s.missionsDone || []).length}/${sc.missions.length}</small>
         </div>
         <div class="right">${stars}${s.demo ? '<br><small>데모</small>' : ''}</div>
@@ -742,7 +776,7 @@
     openModal(`
       <div class="modal-head">
         <span class="emoji">${sc.emoji}</span>
-        <div><h2>${esc(sc.title)}</h2><small>${fmtDate(s.startedAt)} ${fmtTime(s.startedAt)} · ${fmtDur(sessionDuration(s))} · 미션 ${(s.missionsDone || []).length}/${sc.missions.length}</small></div>
+        <div><h2>${LANGS[sessLang(s)].flag} ${esc(sc.title)}</h2><small>${fmtDate(s.startedAt)} ${fmtTime(s.startedAt)} · ${fmtDur(sessionDuration(s))} · 미션 ${(s.missionsDone || []).length}/${sc.missions.length}</small></div>
         <button class="modal-close">✕</button>
       </div>
       ${r ? `<div class="card" style="margin-top:10px"><div class="stars" style="font-size:22px;margin:0 0 6px">${[1, 2, 3, 4, 5].map(n => `<span class="${n <= r.stars ? '' : 'off'}">⭐</span>`).join('')}</div><p>${esc(r.praise)}</p>
@@ -756,7 +790,7 @@
         <button class="btn ghost danger-zone" id="hm-delete" style="color:var(--danger)">🗑 이 기록 지우기</button>
       </div>
     `);
-    const again = $('#hm-again'); if (again) again.addEventListener('click', () => { closeModal(); startScenario(sc.id); });
+    const again = $('#hm-again'); if (again) again.addEventListener('click', () => { closeModal(); Store.saveSettings({ lang: sessLang(s) }); startScenario(sc.id); });
     const resume = $('#hm-resume'); if (resume) resume.addEventListener('click', () => { closeModal(); resumeSession(s.id); });
     $('#hm-delete').addEventListener('click', () => {
       if (confirm('이 대화 기록을 지울까요?')) { Store.deleteSession(s.id); if (Store.getCurrentId() === s.id) Store.setCurrentId(null); closeModal(); render(); toast('기록을 지웠어요.'); }
@@ -773,6 +807,11 @@
       <h2 class="section-title">⚙️ 설정</h2>
 
       <div class="card">
+        <div class="field">
+          <label>🌐 배우는 언어</label>
+          ${langToggle(true)}
+          <span class="hint">홈 화면과 상황 선택 창에서도 바꿀 수 있어요. 일본어는 한자 없이 히라가나·가타카나로 대화해요.</span>
+        </div>
         <div class="field">
           <label for="s-name">🙋 내 이름 (영어 이름도 좋아요)</label>
           <input id="s-name" type="text" placeholder="예: Minji" value="${esc(st.name)}" maxlength="20">
@@ -805,7 +844,7 @@
 
       <h3 class="section-title" style="font-size:16px">🔊 대화 옵션</h3>
       <div class="card">
-        <div class="switch"><div><b>AI 대사 자동으로 읽어 주기</b><br><small>영어 발음을 들으며 연습해요</small></div><button class="toggle ${st.autoSpeak ? 'on' : ''}" data-toggle="autoSpeak" aria-label="자동 읽기"></button></div>
+        <div class="switch"><div><b>AI 대사 자동으로 읽어 주기</b><br><small>원어민 발음을 들으며 연습해요</small></div><button class="toggle ${st.autoSpeak ? 'on' : ''}" data-toggle="autoSpeak" aria-label="자동 읽기"></button></div>
         <div class="switch"><div><b>한국어 뜻 항상 보여 주기</b><br><small>한 번 본 뜻을 계속 표시해요</small></div><button class="toggle ${st.showKoHint ? 'on' : ''}" data-toggle="showKoHint" aria-label="뜻 항상 보기"></button></div>
       </div>
 
@@ -820,7 +859,7 @@
         </div>
       </div>
 
-      <p style="margin:20px 0 0; text-align:center"><small>Talk Buddy · 초등 5학년 영어 회화 연습 앱 · 상황 ${SCENARIOS.length}개</small></p>
+      <p style="margin:20px 0 0; text-align:center"><small>Talk Buddy · 초등 5학년 영어·일본어 회화 연습 앱 · 상황 ${SCENARIOS.length}개 × 2개 언어</small></p>
     `;
 
     $('#s-eye').addEventListener('click', () => { const k = $('#s-key'); k.type = k.type === 'password' ? 'text' : 'password'; });
@@ -838,6 +877,7 @@
     $$('[data-toggle]').forEach(b => b.addEventListener('click', () => {
       const k = b.dataset.toggle; Store.saveSettings({ [k]: !Store.getSettings()[k] }); render();
     }));
+    $$('[data-lang]').forEach(b => b.addEventListener('click', () => { Store.saveSettings({ lang: b.dataset.lang }); render(); }));
     $('#s-export').addEventListener('click', () => {
       const blob = new Blob([Store.exportJSON()], { type: 'application/json' });
       const a = document.createElement('a'); a.href = URL.createObjectURL(blob);

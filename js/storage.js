@@ -16,6 +16,7 @@ const Store = (() => {
     autoSpeak: true,
     showKoHint: false,
     name: '',
+    lang: 'en',          // 배우는 언어: 'en' | 'ja'
   };
 
   function read(key, fallback) {

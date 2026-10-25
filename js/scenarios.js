@@ -626,3 +626,25 @@ const SCENARIOS = [
 /* 빠른 조회용 */
 const SCENARIO_MAP = Object.fromEntries(SCENARIOS.map(s => [s.id, s]));
 const CATEGORY_MAP = Object.fromEntries(CATEGORIES.map(c => [c.id, c]));
+
+/* ------------------------------------------------------------
+   배우는 언어
+   - en: 영어 (기본), ja: 일본어 (scenarios_ja.js)
+------------------------------------------------------------- */
+const LANGS = {
+  en: { code: 'en', flag: '🇺🇸', name: '영어',   nameEn: 'English',  tts: 'en-US', say: '영어로 말해 보세요 ✏️' },
+  ja: { code: 'ja', flag: '🇯🇵', name: '일본어', nameEn: 'Japanese', tts: 'ja-JP', say: '일본어로 말해 보세요 ✏️' },
+};
+
+/** 상황을 선택한 언어 버전으로 변환 { lang, subtitle, ai, phrases:[[외국어, 한국어]], opener } */
+function localize(s, lang) {
+  if (lang === 'ja' && typeof SCENARIOS_JA !== 'undefined' && SCENARIOS_JA[s.id]) {
+    const j = SCENARIOS_JA[s.id];
+    return {
+      lang: 'ja', subtitle: j.title, ai: j.ai,
+      phrases: j.phrases.map((p, i) => [p, s.phrases[i] ? s.phrases[i][1] : '']),
+      opener: j.opener,
+    };
+  }
+  return { lang: 'en', subtitle: s.en, ai: s.ai, phrases: s.phrases, opener: s.opener };
+}
